@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -74,7 +75,12 @@ async def _maybe_backfill() -> None:
     """On boot, if the local DB has < ~30 days of dispatch history, kick off
     the 90-day archive backfill. Heatmap / weekly-view charts are useless
     without this. Runs once, in the background — startup isn't blocked.
+
+    Set DISABLE_BACKFILL=1 to skip (useful on memory-constrained cloud envs).
     """
+    if os.getenv("DISABLE_BACKFILL", "").strip().lower() in ("1", "true", "yes"):
+        log.info("backfill: disabled by DISABLE_BACKFILL env var, skipping")
+        return
     try:
         with locked_conn() as con:
             row = con.execute(
@@ -145,16 +151,25 @@ def start() -> None:
         seconds=POLL_INTERVAL_SECONDS * 5, id="bids", max_instances=1,
     )
     _scheduler.start()
-    # Kick off immediately so the dashboard isn't empty on first load.
-    asyncio.create_task(_tick_nem())
-    asyncio.create_task(_tick_wem())
-    asyncio.create_task(_tick_scada())
-    asyncio.create_task(_tick_predispatch())
-    asyncio.create_task(_tick_bids())
-    # Heatmap and 7-day chart views need historical depth that the live
-    # scraper can't provide on its own. Launch the archive backfill in the
-    # background — it's a no-op once the DB is populated.
-    asyncio.create_task(_maybe_backfill())
+
+    # Stagger initial ticks so all scrapers don't hammer AEMO simultaneously
+    # at startup (avoids memory spike that can OOM on constrained cloud envs).
+    async def _staggered_start() -> None:
+        await _tick_nem()
+        await asyncio.sleep(4)
+        await _tick_scada()
+        await asyncio.sleep(4)
+        await _tick_predispatch()
+        await asyncio.sleep(4)
+        await _tick_bids()
+        await asyncio.sleep(4)
+        await _tick_wem()
+        await asyncio.sleep(10)
+        # Heatmap and 7-day chart views need historical depth. Backfill runs
+        # last, after live scrapers are stable.
+        await _maybe_backfill()
+
+    asyncio.create_task(_staggered_start())
 
 
 def stop() -> None:
