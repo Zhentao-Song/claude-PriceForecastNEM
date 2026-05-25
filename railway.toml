@@ -1,6 +1,5 @@
 [build]
-dockerfilePath = "webapp/Dockerfile.prod"
-dockerContextDir = "webapp"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/docs"

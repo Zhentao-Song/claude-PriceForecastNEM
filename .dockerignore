@@ -1,0 +1,24 @@
+# ML data & checkpoints (large, not needed for webapp)
+data/
+checkpoints/
+logs/
+notebooks/
+src/
+
+# Frontend build artefacts & deps (rebuilt inside Docker)
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/frontend/.vite/
+
+# Backend runtime data (created fresh on first run)
+webapp/backend/data/
+
+# Python cache
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
