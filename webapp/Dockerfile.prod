@@ -1,0 +1,29 @@
+# ── Stage 1: Build React frontend ─────────────────────────────────────────────
+FROM node:20-alpine AS frontend
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --prefer-offline
+
+COPY frontend/ .
+RUN npm run build
+# → /frontend/dist
+
+
+# ── Stage 2: Python backend + bundled frontend ─────────────────────────────────
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt aiofiles
+
+COPY backend/app ./app
+COPY --from=frontend /frontend/dist ./static
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# Use $PORT if Railway injects it, otherwise fall back to 8000
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

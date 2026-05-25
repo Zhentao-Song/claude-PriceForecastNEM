@@ -4,4 +4,5 @@ httpx>=0.27.0
 apscheduler>=3.10.0
 python-dateutil>=2.9.0
 sse-starlette>=2.1.0
+aiofiles>=23.0.0        # required by FastAPI StaticFiles
 # SQLite is in the stdlib — no extra dep needed.
