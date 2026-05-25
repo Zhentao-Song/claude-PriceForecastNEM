@@ -1,0 +1,54 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# ── Data & model weights (large, reproducible from AEMO) ─────────────────────
+data/raw/
+data/processed/
+data/cache/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# ── Runtime database (auto-created by Docker / backend on first run) ──────────
+webapp/backend/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Frontend build artefacts ──────────────────────────────────────────────────
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/frontend/.vite/
+
+# ── Claude Code local settings (machine-specific) ────────────────────────────
+.claude/settings.local.json
+
+# ── macOS / IDE ───────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/

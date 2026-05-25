@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>v5 · Living Stack — NEM Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    background:
+      radial-gradient(900px 500px at 90% -10%, rgba(0,180,255,0.10), transparent 60%),
+      radial-gradient(700px 400px at -10% 90%, rgba(255,150,90,0.08), transparent 60%),
+      #07090f;
+    color:#e6e9ef; min-height:100vh;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .nums { font-variant-numeric: tabular-nums; }
+  .glass { background: rgba(15,20,28,0.55); backdrop-filter: blur(14px); border:1px solid rgba(255,255,255,0.06); }
+  .chip { border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:3px 10px; font-size:11px; color:#cfd5e1; }
+  .num-big { letter-spacing:-0.01em; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:2px; }
+  .pulse { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:0.55; } }
+  .tile { transition: transform .25s ease, box-shadow .25s ease; cursor:pointer; }
+  .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 24px -8px rgba(0,180,255,0.15); }
+  .tile.selected { box-shadow: 0 0 0 1px rgba(109,248,255,0.4), 0 8px 28px -8px rgba(109,248,255,0.25); }
+  /* Liquid column container */
+  .column svg { display:block; }
+</style>
+</head>
+<body>
+
+<header class="px-7 py-5 flex items-center gap-6 border-b border-white/5">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-md flex items-center justify-center text-[12px] font-bold" style="background:linear-gradient(135deg,#6df8ff,#a78bfa); color:#0a0a0a;">NW</div>
+    <div>
+      <div class="text-[14px] font-semibold">NEM <span class="text-white/40">/</span> living stack</div>
+      <div class="text-[10px] uppercase tracking-[0.25em] text-white/40">grid as liquid · fuel layers in motion</div>
+    </div>
+  </div>
+  <div class="ml-auto flex items-center gap-3 text-[11px]">
+    <span class="chip flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse"></span>streaming</span>
+    <span class="chip mono">2026-05-19 · 12:48</span>
+    <span class="chip">CO₂ 0.62 t/MWh ↓18%</span>
+  </div>
+</header>
+
+<main class="px-7 py-7 max-w-[1480px] mx-auto space-y-6">
+
+<!-- Region tile strip — small liquid columns -->
+<section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+  <div id="tileNSW" class="tile selected glass rounded-2xl p-4 column relative">
+    <div class="flex items-baseline justify-between">
+      <div class="text-[10px] uppercase tracking-[0.25em] text-white/50">NSW</div>
+      <div class="text-[10px] mono nums text-white/40">12:45</div>
+    </div>
+    <div class="mt-2 mono num-big text-[20px] nums" style="color:#ffb547">$87.42</div>
+    <div class="text-[10px] text-emerald-300">▼ $4.18</div>
+    <svg viewBox="0 0 100 80" class="mt-2 w-full h-24" data-region="NSW1"></svg>
+    <div class="mt-1 text-[10px] text-white/40">8,142 MW load · 38% renew</div>
+  </div>
+  <div id="tileQLD" class="tile glass rounded-2xl p-4 column relative">
+    <div class="flex items-baseline justify-between"><div class="text-[10px] uppercase tracking-[0.25em] text-white/50">QLD</div><div class="text-[10px] mono nums text-white/40">12:45</div></div>
+    <div class="mt-2 mono num-big text-[20px] nums" style="color:#ff5c8e">$112.05</div>
+    <div class="text-[10px] text-pink-300">▲ $22.60</div>
+    <svg viewBox="0 0 100 80" class="mt-2 w-full h-24" data-region="QLD1"></svg>
+    <div class="mt-1 text-[10px] text-white/40">7,820 MW · 28% renew</div>
+  </div>
+  <div id="tileVIC" class="tile glass rounded-2xl p-4 column relative">
+    <div class="flex items-baseline justify-between"><div class="text-[10px] uppercase tracking-[0.25em] text-white/50">VIC</div><div class="text-[10px] mono nums text-white/40">12:45</div></div>
+    <div class="mt-2 mono num-big text-[20px] nums" style="color:#6df8ff">$62.18</div>
+    <div class="text-[10px] text-emerald-300">▼ $1.04</div>
+    <svg viewBox="0 0 100 80" class="mt-2 w-full h-24" data-region="VIC1"></svg>
+    <div class="mt-1 text-[10px] text-white/40">6,450 MW · 42% renew</div>
+  </div>
+  <div id="tileSA" class="tile glass rounded-2xl p-4 column relative">
+    <div class="flex items-baseline justify-between"><div class="text-[10px] uppercase tracking-[0.25em] text-white/50">SA</div><div class="text-[10px] mono nums text-white/40">12:45</div></div>
+    <div class="mt-2 mono num-big text-[20px] nums" style="color:#74e0a2">−$12.74</div>
+    <div class="text-[10px] text-emerald-300">renew flood</div>
+    <svg viewBox="0 0 100 80" class="mt-2 w-full h-24" data-region="SA1"></svg>
+    <div class="mt-1 text-[10px] text-white/40">2,210 MW · 88% renew</div>
+  </div>
+  <div id="tileTAS" class="tile glass rounded-2xl p-4 column relative">
+    <div class="flex items-baseline justify-between"><div class="text-[10px] uppercase tracking-[0.25em] text-white/50">TAS</div><div class="text-[10px] mono nums text-white/40">12:45</div></div>
+    <div class="mt-2 mono num-big text-[20px] nums" style="color:#a78bfa">$71.93</div>
+    <div class="text-[10px] text-emerald-300">▼ $0.42</div>
+    <svg viewBox="0 0 100 80" class="mt-2 w-full h-24" data-region="TAS1"></svg>
+    <div class="mt-1 text-[10px] text-white/40">1,190 MW · 99% hydro</div>
+  </div>
+  <div id="tileWEM" class="tile glass rounded-2xl p-4 column relative">
+    <div class="flex items-baseline justify-between"><div class="text-[10px] uppercase tracking-[0.25em] text-white/50">WEM</div><div class="text-[10px] mono nums text-white/40">12:30</div></div>
+    <div class="mt-2 mono num-big text-[20px] nums" style="color:#ffd166">$94.20</div>
+    <div class="text-[10px] text-pink-300">▲ $5.80</div>
+    <svg viewBox="0 0 100 80" class="mt-2 w-full h-24" data-region="WEM"></svg>
+    <div class="mt-1 text-[10px] text-white/40">2,840 MW · 35% renew</div>
+  </div>
+</section>
+
+<!-- HERO: big living stack for selected region -->
+<section class="grid grid-cols-12 gap-6">
+
+  <!-- Big liquid aquarium -->
+  <div class="col-span-7 glass rounded-2xl p-6 relative overflow-hidden">
+    <div class="flex items-baseline justify-between mb-3">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">NSW1 · live generation mix</div>
+        <h2 class="text-[28px] font-semibold mt-1">Reading the grid like a tide</h2>
+        <div class="text-[12px] text-white/50 mt-1">each band is a fuel · top surface ripples with dispatch · the dashed "ghost" line shows where each layer was 24 h ago</div>
+      </div>
+      <div class="flex gap-1 text-[11px] mono">
+        <button class="chip">live</button><button class="chip">1h ago</button><button class="chip bg-white/10">24h ago</button>
+      </div>
+    </div>
+
+    <!-- Aquarium SVG (drawn by JS) -->
+    <svg id="aquarium" viewBox="0 0 700 420" class="w-full h-[480px]"></svg>
+
+    <!-- Legend below -->
+    <div id="aqLegend" class="mt-3 flex flex-wrap gap-3 text-[11px] text-white/70"></div>
+  </div>
+
+  <!-- Right rail: KPI cards -->
+  <aside class="col-span-5 space-y-4">
+    <!-- Total / renewables tile -->
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">NSW1 supply</div>
+      <div class="mt-1 flex items-baseline gap-3">
+        <div class="num-big text-[42px] font-semibold">8,142<span class="text-[20px] text-white/40"> MW</span></div>
+        <span class="chip">load now</span>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-3 text-[12px]">
+        <div>
+          <div class="text-white/50">Renewables now</div>
+          <div class="num-big text-[24px]" style="color:#74e0a2">38.4%</div>
+        </div>
+        <div>
+          <div class="text-white/50">24h ago</div>
+          <div class="num-big text-[24px] text-white/70">29.1%</div>
+        </div>
+        <div>
+          <div class="text-white/50">Battery delta</div>
+          <div class="num-big text-[24px]" style="color:#bd84ff">+85 MW</div>
+        </div>
+        <div>
+          <div class="text-white/50">Net import</div>
+          <div class="num-big text-[24px]" style="color:#ff7a59">+412 MW</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top movers — which fuel band is rising / sinking fastest -->
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-3">Movement · last 60 min</div>
+      <ul id="movers" class="space-y-2.5 text-[13px]"></ul>
+    </div>
+
+    <!-- Suggested -->
+    <div class="glass rounded-2xl p-5" style="background: linear-gradient(135deg, rgba(109,248,255,0.06), rgba(167,139,250,0.06)), rgba(15,20,28,0.55);">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">Suggested bid · 13:00</div>
+      <div class="mt-2 text-[22px] font-semibold">
+        Discharge <span style="color:#6df8ff">85 MW</span> + 30 MW RAISEREG
+      </div>
+      <div class="text-[12px] text-white/60 mt-1">solar layer dropping fast — RRP expected ↑$25 by 13:30</div>
+      <div class="mt-3 flex gap-2 text-[11px]">
+        <span class="chip">EV +$214</span><span class="chip">SoC after 42%</span><span class="chip">MLF 0.97</span>
+      </div>
+      <button class="mt-3 w-full text-[12px] py-2.5 rounded-full font-medium" style="background:linear-gradient(135deg,#6df8ff,#a78bfa); color:#0a0a0a;">Submit bid ⏎</button>
+    </div>
+  </aside>
+</section>
+
+<!-- Bottom: bubbles strip for live dispatch events -->
+<section class="glass rounded-2xl p-5">
+  <div class="flex items-baseline justify-between mb-4">
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">Live dispatch · last 5 min</div>
+      <h3 class="text-[20px] font-semibold mt-1">Bubble flow · every unit that moved</h3>
+    </div>
+    <div class="text-[11px] text-white/50">size = ΔMW · color = fuel · rising = generating, sinking = curtailed</div>
+  </div>
+  <div class="relative h-[160px] overflow-hidden rounded-xl" style="background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.005));">
+    <canvas id="bubbles" class="w-full h-full"></canvas>
+  </div>
+</section>
+
+</main>
+
+<footer class="px-7 py-4 text-[10px] mono text-white/40 border-t border-white/5 flex justify-between">
+  <span>tides update every 5 s · wave physics @ 60fps</span>
+  <span>build 4f8a9c</span>
+</footer>
+
+<script>
+// ============================================================================
+// Fuel palette and per-region mix
+// ============================================================================
+const FUEL_ORDER = ['coal_black','coal_brown','gas','hydro','bioenergy','wind','solar','battery'];
+const FUEL = {
+  coal_black: { name:'Black coal', color:'#3a2e25', light:'#5a4838' },
+  coal_brown: { name:'Brown coal', color:'#6b4a32', light:'#8a6447' },
+  gas:        { name:'Gas',        color:'#ff7a59', light:'#ff9a7e' },
+  hydro:      { name:'Hydro',      color:'#5cc8ff', light:'#88dbff' },
+  bioenergy:  { name:'Bio',        color:'#a3e063', light:'#bfe98a' },
+  wind:       { name:'Wind',       color:'#74e0a2', light:'#9eedc0' },
+  solar:      { name:'Solar',      color:'#ffd166', light:'#ffe199' },
+  battery:    { name:'Battery',    color:'#bd84ff', light:'#d0a8ff' },
+};
+
+const REGION_MIX = {
+  NSW1: { coal_black:.48, coal_brown:0, gas:.08, hydro:.04, bioenergy:.02, wind:.18, solar:.16, battery:.04, ghost24h:{ coal_black:.55, gas:.08, hydro:.06, wind:.20, solar:.08, battery:.03 } },
+  QLD1: { coal_black:.62, coal_brown:0, gas:.10, hydro:.02, bioenergy:.02, wind:.05, solar:.18, battery:.01, ghost24h:{} },
+  VIC1: { coal_black:.05, coal_brown:.44, gas:.10, hydro:.06, bioenergy:.01, wind:.22, solar:.10, battery:.02, ghost24h:{} },
+  SA1:  { coal_black:0,   coal_brown:0, gas:.08, hydro:.00, bioenergy:.04, wind:.50, solar:.32, battery:.06, ghost24h:{} },
+  TAS1: { coal_black:0,   coal_brown:0, gas:.00, hydro:.92, bioenergy:.00, wind:.08, solar:.00, battery:.00, ghost24h:{} },
+  WEM:  { coal_black:.35, coal_brown:0, gas:.30, hydro:.00, bioenergy:.00, wind:.20, solar:.13, battery:.02, ghost24h:{} },
+};
+function mixArray(mix) {
+  return FUEL_ORDER.map(k => ({ key:k, v: mix[k] || 0 })).filter(s => s.v > 0);
+}
+
+// ============================================================================
+// Small liquid column inside each region tile
+// ============================================================================
+function drawSmallColumn(svg, regionKey) {
+  const mix = mixArray(REGION_MIX[regionKey]);
+  const W = 100, H = 80;
+  svg.innerHTML = '';
+  // background
+  const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x', 4); bg.setAttribute('y', 6);
+  bg.setAttribute('width', W-8); bg.setAttribute('height', H-12);
+  bg.setAttribute('rx', 6); bg.setAttribute('fill', 'rgba(255,255,255,0.03)');
+  svg.appendChild(bg);
+  // stack fuels from bottom (heavy/dark) to top
+  let stackV = 0;
+  for (const s of mix) {
+    const f = FUEL[s.key];
+    const x = 4, y = 6 + (H-12) * (1 - stackV - s.v);
+    const w = W - 8, h = (H-12) * s.v;
+    const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x', x); r.setAttribute('y', y);
+    r.setAttribute('width', w); r.setAttribute('height', h);
+    r.setAttribute('fill', f.color); r.setAttribute('opacity', 0.92);
+    svg.appendChild(r);
+    stackV += s.v;
+  }
+  // top surface wavy line
+  const surfY = 6 + (H-12) * (1 - stackV);
+  const wave = document.createElementNS('http://www.w3.org/2000/svg','path');
+  wave.setAttribute('stroke', 'rgba(255,255,255,0.4)');
+  wave.setAttribute('fill', 'none'); wave.setAttribute('stroke-width', '1');
+  const path = `M 4 ${surfY} Q 25 ${surfY-2} 50 ${surfY} T 96 ${surfY}`;
+  wave.setAttribute('d', path);
+  svg.appendChild(wave);
+}
+['NSW1','QLD1','VIC1','SA1','TAS1','WEM'].forEach(rid => {
+  document.querySelectorAll(`svg[data-region="${rid}"]`).forEach(s => drawSmallColumn(s, rid));
+});
+
+// ============================================================================
+// Big aquarium with animated wavy surfaces, ghost lines, rising bubbles
+// ============================================================================
+const aq = document.getElementById('aquarium');
+const AQ_W = 700, AQ_H = 420;
+function setAttrs(el, m){ for (const k in m) el.setAttribute(k, m[k]); }
+
+// Build static structure: defs, frame, ghost lines container, layers container, bubbles container.
+aq.innerHTML = '';
+const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+// soft gradient overlay at top
+for (const k of FUEL_ORDER) {
+  const g = document.createElementNS('http://www.w3.org/2000/svg','linearGradient');
+  setAttrs(g, { id:`g_${k}`, x1:'0', y1:'0', x2:'0', y2:'1' });
+  const c = FUEL[k];
+  const s1 = document.createElementNS('http://www.w3.org/2000/svg','stop');
+  setAttrs(s1, { offset:'0%', 'stop-color': c.light, 'stop-opacity':'0.95' });
+  const s2 = document.createElementNS('http://www.w3.org/2000/svg','stop');
+  setAttrs(s2, { offset:'100%', 'stop-color': c.color, 'stop-opacity':'0.85' });
+  g.appendChild(s1); g.appendChild(s2);
+  defs.appendChild(g);
+}
+aq.appendChild(defs);
+// frame
+const frame = document.createElementNS('http://www.w3.org/2000/svg','rect');
+setAttrs(frame, { x:8, y:8, width:AQ_W-16, height:AQ_H-16, rx:14, fill:'rgba(255,255,255,0.02)', stroke:'rgba(255,255,255,0.05)' });
+aq.appendChild(frame);
+
+const layersG = document.createElementNS('http://www.w3.org/2000/svg','g');
+aq.appendChild(layersG);
+const ghostG = document.createElementNS('http://www.w3.org/2000/svg','g');
+aq.appendChild(ghostG);
+const bubblesG = document.createElementNS('http://www.w3.org/2000/svg','g');
+aq.appendChild(bubblesG);
+const labelG = document.createElementNS('http://www.w3.org/2000/svg','g');
+aq.appendChild(labelG);
+
+// For the selected region (NSW1) we render stacked layers, each with a wavy top.
+// Animation: each surface has its own phase + amplitude. Heavy fuels = slow, calm waves.
+// Light fuels (solar/battery) = faster, more amplitude.
+const SELECTED = 'NSW1';
+const mix = mixArray(REGION_MIX[SELECTED]);
+const ghost = REGION_MIX[SELECTED].ghost24h;
+
+const innerY0 = 28, innerYH = AQ_H - 60;
+const innerX0 = 28, innerXW = AQ_W - 56;
+
+const layerEls = [];
+let stackPct = 0;
+// build bottom-up
+for (const s of mix) {
+  const layer = document.createElementNS('http://www.w3.org/2000/svg','path');
+  layer.setAttribute('fill', `url(#g_${s.key})`);
+  layer.setAttribute('opacity', '0.94');
+  layersG.appendChild(layer);
+  // label inside band
+  const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+  label.setAttribute('fill', 'rgba(255,255,255,0.75)');
+  label.setAttribute('font-size', '11');
+  label.setAttribute('font-family', 'JetBrains Mono');
+  label.textContent = `${FUEL[s.key].name}  ${(s.v*100).toFixed(1)}%`;
+  labelG.appendChild(label);
+  layerEls.push({ s, el: layer, label, stackBelow: stackPct, phase: Math.random()*Math.PI*2, amp: amplitudeFor(s.key), speed: speedFor(s.key) });
+  stackPct += s.v;
+}
+function amplitudeFor(k) {
+  if (k === 'solar' || k === 'battery') return 6;
+  if (k === 'wind') return 4;
+  if (k === 'hydro' || k === 'gas') return 2;
+  return 1; // coal calm
+}
+function speedFor(k) {
+  if (k === 'battery') return 1.6;
+  if (k === 'solar') return 1.1;
+  if (k === 'wind') return 0.9;
+  if (k === 'hydro') return 0.6;
+  if (k === 'gas') return 0.5;
+  return 0.25;
+}
+
+// Ghost 24h-ago horizontal dashed lines per fuel (so you can compare to 24h ago).
+const ghostEls = [];
+let gStack = 0;
+for (const s of mix) {
+  if (!ghost[s.key]) continue;
+  gStack += ghost[s.key];
+  const y = innerY0 + innerYH * (1 - gStack);
+  const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+  setAttrs(ln, { x1: innerX0, y1: y, x2: innerX0 + innerXW, y2: y,
+    stroke: FUEL[s.key].light, 'stroke-dasharray':'4 4', 'stroke-width':1, opacity:0.5 });
+  ghostG.appendChild(ln);
+  const tx = document.createElementNS('http://www.w3.org/2000/svg','text');
+  setAttrs(tx, { x: innerX0 + innerXW + 4, y: y+3 });
+  tx.setAttribute('fill', FUEL[s.key].light);
+  tx.setAttribute('font-size', '10');
+  tx.setAttribute('font-family', 'JetBrains Mono');
+  tx.textContent = `24h: ${(ghost[s.key]*100).toFixed(0)}%`;
+  ghostG.appendChild(tx);
+}
+
+// Rising bubbles inside the aquarium → represent dispatch activity
+const bubbles = [];
+function spawnBubble(){
+  // bias spawn to renewable (more activity)
+  const fuelKeys = ['solar','battery','wind','hydro','gas'];
+  const k = fuelKeys[Math.floor(Math.random()*fuelKeys.length)];
+  const c = FUEL[k];
+  const x = innerX0 + 10 + Math.random()*(innerXW-20);
+  const y = innerY0 + innerYH - 4;
+  const r = 1.5 + Math.random()*3;
+  const v = 0.4 + Math.random()*1.4;
+  bubbles.push({ x, y, r, v, c, life: 0, max: 220 + Math.random()*180 });
+}
+
+// Build a wavy path for a top surface at fractional height topY (svg coords) → returns path string from x0..x1 on top, going back along bottom.
+function wavyPath(topYfn, x0, x1, bottomY) {
+  let d = '';
+  const step = 6;
+  let first = true;
+  for (let x = x0; x <= x1; x += step) {
+    const y = topYfn(x);
+    d += first ? `M ${x} ${y}` : ` L ${x} ${y}`;
+    first = false;
+  }
+  d += ` L ${x1} ${bottomY} L ${x0} ${bottomY} Z`;
+  return d;
+}
+
+function tick() {
+  const t = performance.now() / 1000;
+
+  // each layer’s surface y is innerY0 + innerYH*(1 - (stackBelow + s.v + waveDelta))
+  // Draw from bottom up so the top of layer N becomes baseline of N+1.
+  let runningStack = 0;
+  for (let i=0;i<layerEls.length;i++) {
+    const L = layerEls[i];
+    const baseStack = runningStack;
+    const topStack  = runningStack + L.s.v;
+    const baseY = innerY0 + innerYH * (1 - baseStack);
+    const topYfn = (x) => {
+      const xN = (x - innerX0) / innerXW; // 0..1
+      const wave = Math.sin(xN*Math.PI*3 + t*L.speed + L.phase) * L.amp
+                 + Math.sin(xN*Math.PI*7 + t*L.speed*1.3 + L.phase*1.7) * (L.amp*0.4);
+      return innerY0 + innerYH * (1 - topStack) + wave;
+    };
+    L.el.setAttribute('d', wavyPath(topYfn, innerX0, innerX0+innerXW, baseY));
+
+    // label placement: roughly middle of band, near left
+    const midY = innerY0 + innerYH * (1 - (baseStack + topStack)/2);
+    L.label.setAttribute('x', innerX0 + 10);
+    L.label.setAttribute('y', midY + 4);
+    runningStack = topStack;
+  }
+
+  // Bubbles
+  if (Math.random() < 0.45) spawnBubble();
+  for (let i=bubbles.length-1; i>=0; i--) {
+    const b = bubbles[i];
+    b.life++;
+    b.y -= b.v * 0.6;
+    b.x += Math.sin(b.life*0.1) * 0.4;
+    if (b.life > b.max || b.y < innerY0) { bubbles.splice(i,1); continue; }
+    // get or create element
+    if (!b.el) {
+      b.el = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      b.el.setAttribute('fill', b.c.light);
+      b.el.setAttribute('opacity', 0.55);
+      bubblesG.appendChild(b.el);
+    }
+    b.el.setAttribute('cx', b.x);
+    b.el.setAttribute('cy', b.y);
+    b.el.setAttribute('r', b.r);
+    b.el.setAttribute('opacity', Math.max(0, 0.6 - b.life/b.max));
+  }
+  // gc dead bubble elements
+  while (bubblesG.children.length > bubbles.length + 50) {
+    bubblesG.removeChild(bubblesG.firstChild);
+  }
+
+  requestAnimationFrame(tick);
+}
+tick();
+
+// Aquarium legend
+const al = document.getElementById('aqLegend');
+for (const s of mix) {
+  const c = document.createElement('div');
+  c.className = 'flex items-center gap-1.5';
+  c.innerHTML = `<span class="dot" style="background:${FUEL[s.key].color}"></span>${FUEL[s.key].name} <span class="text-white/40">${(s.v*100).toFixed(1)}%</span>`;
+  al.appendChild(c);
+}
+
+// Movers list
+const movers = document.getElementById('movers');
+const moverData = [
+  { key:'solar',   delta:+520, label:'Solar PV',   reason:'midday peak' },
+  { key:'wind',    delta:+180, label:'Wind',       reason:'cold front in Hunter' },
+  { key:'battery', delta:+85,  label:'Battery',    reason:'discharging into evening peak' },
+  { key:'gas',     delta:-240, label:'Gas',        reason:'displaced by renewables' },
+  { key:'coal_black', delta:-310, label:'Black coal', reason:'Bayswater U4 ramp-down' },
+];
+moverData.sort((a,b) => Math.abs(b.delta)-Math.abs(a.delta));
+for (const m of moverData) {
+  const sign = m.delta > 0 ? '+' : '−';
+  const color = m.delta > 0 ? '#74e0a2' : '#ff7b7b';
+  const row = document.createElement('li');
+  row.className = 'flex items-center gap-3';
+  row.innerHTML = `
+    <span class="dot" style="background:${FUEL[m.key].color}"></span>
+    <div class="flex-1">
+      <div class="font-medium">${m.label}</div>
+      <div class="text-[11px] text-white/45">${m.reason}</div>
+    </div>
+    <div class="mono nums num-big text-[16px]" style="color:${color}">${sign}${Math.abs(m.delta)} MW</div>
+  `;
+  movers.appendChild(row);
+}
+
+// ============================================================================
+// Bubble strip at bottom — small canvas of rising/falling particles per unit
+// ============================================================================
+const bc = document.getElementById('bubbles');
+const bctx = bc.getContext('2d');
+function fitBC(){ bc.width = bc.clientWidth * 2; bc.height = bc.clientHeight * 2; bctx.setTransform(2,0,0,2,0,0); }
+window.addEventListener('resize', fitBC); fitBC();
+
+const events = [];
+function spawnEvent() {
+  const keys = ['solar','wind','battery','gas','coal_black','hydro'];
+  const k = keys[Math.floor(Math.random()*keys.length)];
+  const f = FUEL[k];
+  const up = Math.random() > 0.35;       // mostly rising = generation up
+  const size = 3 + Math.random()*9;
+  events.push({
+    x: Math.random()* (bc.clientWidth),
+    y: up ? bc.clientHeight + 8 : -8,
+    vy: up ? -(0.5+Math.random()*1.5) : (0.5+Math.random()*1.5),
+    r: size, color: f.color, label: f.name,
+    duid: 'DUID'+Math.floor(Math.random()*900),
+    age: 0, life: 200 + Math.random()*200,
+  });
+}
+function drawBubbles() {
+  bctx.fillStyle = 'rgba(7,9,15,0.35)';
+  bctx.fillRect(0, 0, bc.clientWidth, bc.clientHeight);
+  if (Math.random() < 0.55) spawnEvent();
+  for (let i=events.length-1;i>=0;i--) {
+    const e = events[i];
+    e.age++;
+    e.y += e.vy;
+    e.x += Math.sin(e.age*0.07) * 0.3;
+    if (e.age > e.life || e.y < -20 || e.y > bc.clientHeight + 20) { events.splice(i,1); continue; }
+    const alpha = Math.min(1, 1 - e.age/e.life);
+    bctx.beginPath();
+    bctx.fillStyle = e.color;
+    bctx.globalAlpha = alpha * 0.85;
+    bctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+    bctx.fill();
+    bctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(drawBubbles);
+}
+drawBubbles();
+</script>
+
+</body>
+</html>

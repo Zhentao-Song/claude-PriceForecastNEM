@@ -1,0 +1,110 @@
+# NEM Price Forecast Configuration
+
+data:
+  # Date range for training data (post 5-min settlement rule)
+  # Full range (uncomment for production training):
+  # start_date: "2022/01/01 00:00:00"
+  # end_date: "2025/12/31 00:00:00"
+
+  # Initial test range (3 months, ~260k rows, faster download)
+  start_date: "2025/01/01 00:00:00"
+  end_date: "2025/03/31 00:00:00"
+
+  # NEM regions
+  regions:
+    - NSW1
+    - QLD1
+    - VIC1
+    - SA1
+    - TAS1
+
+  # AEMO data tables to download
+  tables:
+    - DISPATCHPRICE
+    - DISPATCHREGIONSUM
+
+  # Raw data storage
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  cache_dir: "data/cache"
+
+features:
+  # Lagged price features (number of 5-min intervals)
+  price_lags: [1, 2, 3, 6, 12, 24, 48, 96, 288]  # up to 24h
+
+  # Rolling window statistics (in 5-min intervals)
+  rolling_windows: [12, 48, 288]  # 1h, 4h, 24h
+
+  # Calendar features
+  use_calendar: true
+  use_holidays: true
+
+  # Price transformation
+  price_transform: "asinh"  # asinh handles negative prices well
+
+  # Spike threshold ($/MWh)
+  spike_threshold: 300.0
+  negative_spike_threshold: -50.0
+
+model:
+  # Architecture
+  type: "gnn_transformer"
+
+  # Input sequence length (5-min intervals)
+  seq_len: 96  # 8 hours of history (faster training, still captures daily patterns)
+
+  # Prediction horizons (5-min intervals ahead)
+  pred_horizons: [1, 6, 12]  # 5min, 30min, 1h
+
+  # GNN parameters
+  gnn:
+    hidden_dim: 64
+    num_layers: 2
+    edge_type: "interconnector"  # edge weights from interconnector capacity
+
+  # Transformer parameters
+  transformer:
+    d_model: 64
+    nhead: 4
+    num_layers: 3
+    dim_feedforward: 256
+    dropout: 0.1
+
+  # Quantile regression
+  quantiles: [0.1, 0.25, 0.5, 0.75, 0.9, 0.99]
+
+training:
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  max_epochs: 100
+  early_stopping_patience: 10
+
+  # Train/val/test split
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+  # Spike-aware loss weighting
+  spike_loss_weight: 5.0
+
+  # Device
+  device: "auto"  # auto-detect GPU/MPS/CPU
+
+  # Checkpoints
+  checkpoint_dir: "checkpoints"
+  log_dir: "logs"
+
+evaluation:
+  # Metrics
+  metrics:
+    - MAE
+    - RMSE
+    - MAPE
+    - PinballLoss
+    - CRPS
+
+  # Spike evaluation
+  spike_metrics:
+    - precision
+    - recall
+    - f1

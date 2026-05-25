@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>v3 · Bento — NEM Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f3f1ec;
+    color: #0e0e10;
+    -webkit-font-smoothing: antialiased;
+  }
+  .serif { font-family: 'Instrument Serif', Georgia, serif; }
+  .nums  { font-variant-numeric: tabular-nums; }
+  .bento { background:#fff; border-radius: 22px; box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 10px 30px -10px rgba(0,0,0,0.07); }
+  .ink   { color: #0e0e10; }
+  .ink2  { color: #5a5a62; }
+  .muted { color: #9a9aa3; }
+  .hair  { border-color: #eceae3; }
+  .chip  { border: 1px solid #e6e3da; border-radius: 999px; padding: 4px 10px; font-size: 11px; }
+  .pos   { color: #1f8a59; }
+  .neg   { color: #c53b3b; }
+  .accent{ color: #ff5a1f; }
+  .grad-1{ background: linear-gradient(135deg, #fff5e0 0%, #ffe4c7 100%); }
+  .grad-2{ background: linear-gradient(135deg, #fee9e9 0%, #ffd0d6 100%); }
+  .grad-3{ background: linear-gradient(135deg, #e7f3ec 0%, #d2efd9 100%); }
+  .grad-4{ background: linear-gradient(135deg, #eaeefb 0%, #d6deff 100%); }
+  .grad-5{ background: linear-gradient(135deg, #f7eafc 0%, #ead5f5 100%); }
+  .grad-6{ background: linear-gradient(135deg, #e8f4fa 0%, #cfe6f5 100%); }
+  .grad-hero { background:
+      radial-gradient(800px 400px at 90% 110%, rgba(255,90,31,0.15), transparent 60%),
+      radial-gradient(600px 300px at 10% 0%, rgba(255,200,90,0.12), transparent 60%),
+      #fff;
+  }
+  .ring-sel { box-shadow: 0 0 0 2px #ff5a1f, 0 10px 30px -10px rgba(255,90,31,0.4); }
+  .num-big  { font-feature-settings: "ss01" on, "tnum" on; letter-spacing: -0.02em; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:999px; background:#1f8a59;
+    box-shadow: 0 0 0 4px rgba(31,138,89,0.15); }
+</style>
+</head>
+<body>
+
+<header class="max-w-[1480px] mx-auto px-8 pt-8 pb-6 flex items-end justify-between">
+  <div>
+    <div class="text-[12px] muted tracking-widest uppercase">National Electricity Market · Live</div>
+    <h1 class="serif text-[44px] leading-[1] mt-1">Today across the <span class="italic accent">grid</span>.</h1>
+    <div class="ink2 mt-2 text-[14px]">Snapshot at 12:48 AEST · streaming every 5 minutes from NEMWEB</div>
+  </div>
+  <div class="flex items-center gap-3 text-[12px]">
+    <span class="chip flex items-center gap-2"><span class="dot"></span>Live</span>
+    <span class="chip">RYAN1 · 100 MW · SoC 50%</span>
+    <span class="chip">EN · 中文</span>
+  </div>
+</header>
+
+<main class="max-w-[1480px] mx-auto px-8 pb-12 space-y-5">
+
+  <!-- Region bento row -->
+  <section class="grid grid-cols-12 gap-4">
+    <!-- NSW big -->
+    <div class="bento grad-1 col-span-4 p-6 relative ring-sel">
+      <div class="flex items-baseline justify-between">
+        <div>
+          <div class="text-[12px] muted uppercase tracking-widest">New South Wales</div>
+          <div class="text-[11px] ink2 mt-1">Region NSW1 · last 12:45</div>
+        </div>
+        <span class="chip bg-white/70">Selected</span>
+      </div>
+      <div class="mt-5 flex items-end gap-2">
+        <span class="serif num-big text-[82px] leading-none ink">$87<span class="text-[40px] ink2">.42</span></span>
+        <span class="text-[14px] ink2 mb-2">/MWh</span>
+      </div>
+      <div class="mt-3 flex items-center gap-4 text-[13px]">
+        <span class="pos font-medium">▼ $4.18</span>
+        <span class="ink2">vs 1 h ago</span>
+        <span class="ml-auto chip bg-white/70">forecast +5m · $91.20</span>
+      </div>
+      <svg viewBox="0 0 200 40" class="mt-3 w-full h-12 opacity-90">
+        <path d="M0,28 L20,26 L40,24 L60,22 L80,15 L100,12 L120,8 L140,18 L160,22 L180,24 L200,21" fill="none" stroke="#ff5a1f" stroke-width="2"/>
+      </svg>
+    </div>
+
+    <!-- QLD -->
+    <div class="bento grad-2 col-span-2 p-5">
+      <div class="text-[12px] muted uppercase tracking-widest">Queensland</div>
+      <div class="mt-4 serif num-big text-[48px] leading-none">$112</div>
+      <div class="text-[13px] neg mt-1">▲ $22.60 · +25%</div>
+      <svg viewBox="0 0 100 24" class="mt-3 w-full h-7"><path d="M0,18 L20,16 L40,12 L60,8 L80,4 L100,2" fill="none" stroke="#c53b3b" stroke-width="1.8"/></svg>
+    </div>
+
+    <!-- VIC -->
+    <div class="bento grad-3 col-span-2 p-5">
+      <div class="text-[12px] muted uppercase tracking-widest">Victoria</div>
+      <div class="mt-4 serif num-big text-[48px] leading-none">$62</div>
+      <div class="text-[13px] pos mt-1">▼ $1.04 · −1.6%</div>
+      <svg viewBox="0 0 100 24" class="mt-3 w-full h-7"><path d="M0,12 L20,13 L40,12 L60,14 L80,12 L100,14" fill="none" stroke="#1f8a59" stroke-width="1.8"/></svg>
+    </div>
+
+    <!-- SA -->
+    <div class="bento grad-5 col-span-2 p-5">
+      <div class="text-[12px] muted uppercase tracking-widest">South Australia</div>
+      <div class="mt-4 serif num-big text-[48px] leading-none">−$12</div>
+      <div class="text-[13px] pos mt-1">▼ $41.20 · negative</div>
+      <svg viewBox="0 0 100 24" class="mt-3 w-full h-7"><path d="M0,4 L20,7 L40,11 L60,15 L80,19 L100,21" fill="none" stroke="#1f8a59" stroke-width="1.8"/></svg>
+    </div>
+
+    <!-- TAS + WEM stacked -->
+    <div class="col-span-2 space-y-4">
+      <div class="bento grad-4 p-4">
+        <div class="text-[11px] muted uppercase tracking-widest">Tasmania</div>
+        <div class="mt-2 serif text-[28px] leading-none">$71.93</div>
+        <div class="text-[11px] pos">▼ $0.42</div>
+      </div>
+      <div class="bento grad-6 p-4">
+        <div class="text-[11px] muted uppercase tracking-widest">WA · WEM</div>
+        <div class="mt-2 serif text-[28px] leading-none">$94.20</div>
+        <div class="text-[11px] neg">▲ $5.80</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Hero chart + side cards -->
+  <section class="grid grid-cols-12 gap-4">
+    <div class="bento grad-hero col-span-8 p-7 relative">
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="text-[12px] muted uppercase tracking-widest">NSW1 · regional reference price</div>
+          <h2 class="serif text-[32px] mt-1">Last 6 hours <span class="italic ink2">vs AEMO forecast</span></h2>
+        </div>
+        <div class="flex items-center gap-2 text-[12px]">
+          <button class="chip bg-white">6h</button>
+          <button class="chip">24h</button>
+          <button class="chip">3d</button>
+          <button class="chip">7d</button>
+        </div>
+      </div>
+
+      <div class="mt-5 grid grid-cols-4 gap-4 text-[12px]">
+        <div><div class="muted uppercase tracking-widest">Spot</div><div class="serif text-[26px] mt-0.5">$87.42</div></div>
+        <div><div class="muted uppercase tracking-widest">VWAP 1h</div><div class="serif text-[26px] mt-0.5 ink2">$89.10</div></div>
+        <div><div class="muted uppercase tracking-widest">High 24h</div><div class="serif text-[26px] mt-0.5 neg">$218.40</div></div>
+        <div><div class="muted uppercase tracking-widest">Low 24h</div><div class="serif text-[26px] mt-0.5 pos">−$18.10</div></div>
+      </div>
+
+      <svg viewBox="0 0 760 260" class="mt-3 w-full h-[280px]">
+        <defs>
+          <linearGradient id="ggrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ff5a1f" stop-opacity="0.22"/>
+            <stop offset="100%" stop-color="#ff5a1f" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <g stroke="#eceae3">
+          <line x1="0" y1="60" x2="760" y2="60"/><line x1="0" y1="120" x2="760" y2="120"/>
+          <line x1="0" y1="180" x2="760" y2="180"/><line x1="0" y1="240" x2="760" y2="240"/>
+        </g>
+        <g fill="#9a9aa3" font-size="11" font-family="Inter">
+          <text x="6" y="58">$300</text><text x="6" y="118">$200</text>
+          <text x="6" y="178">$100</text><text x="6" y="238">$50</text>
+        </g>
+        <path d="M40,210 L80,205 L120,200 L160,180 L200,175 L240,160 L280,120 L320,80 L360,55 L400,75 L440,110 L480,150 L520,170 L560,180 L600,190 L640,195 L680,200 L720,205 L760,210 L760,260 L40,260 Z" fill="url(#ggrad)"/>
+        <path d="M40,210 L80,205 L120,200 L160,180 L200,175 L240,160 L280,120 L320,80 L360,55 L400,75 L440,110 L480,150 L520,170 L560,180 L600,190 L640,195 L680,200 L720,205 L760,210" fill="none" stroke="#ff5a1f" stroke-width="2.2"/>
+        <!-- forecast dashed -->
+        <path d="M760,210 L800,200" fill="none" stroke="#ff5a1f" stroke-width="1.6" stroke-dasharray="6 4" opacity="0.7"/>
+        <!-- APC -->
+        <line x1="0" y1="25" x2="760" y2="25" stroke="#c8c5bc" stroke-dasharray="3 4"/>
+        <text x="690" y="20" fill="#9a9aa3" font-size="11" font-family="Inter">APC $600</text>
+        <!-- binding markers -->
+        <g fill="#a26bff">
+          <polygon points="320,254 326,248 320,242 314,248"/>
+          <polygon points="340,254 346,248 340,242 334,248"/>
+          <polygon points="360,254 366,248 360,242 354,248"/>
+        </g>
+        <text x="325" y="270" fill="#a26bff" font-size="11" font-family="Inter">binding · N::N_NIL_2 +12.3 ($/MW)</text>
+      </svg>
+    </div>
+
+    <aside class="col-span-4 space-y-4">
+      <!-- CPT gauge -->
+      <div class="bento p-5">
+        <div class="flex items-baseline justify-between">
+          <div>
+            <div class="text-[12px] muted uppercase tracking-widest">CPT 7-day rolling</div>
+            <div class="serif text-[28px] mt-1">35% to APC</div>
+          </div>
+          <span class="chip">NER 3.14.2</span>
+        </div>
+        <div class="mt-4 h-2 rounded-full bg-[#f1eee6] overflow-hidden">
+          <div class="h-full rounded-full" style="width:35%; background: linear-gradient(90deg,#1f8a59 0%,#ffae3d 70%,#c53b3b 100%);"></div>
+        </div>
+        <div class="text-[12px] ink2 mt-2 nums">$487,210 of $1,398,100 trigger</div>
+      </div>
+
+      <!-- Suggested bid -->
+      <div class="bento p-5 grad-1">
+        <div class="text-[12px] muted uppercase tracking-widest">Suggested bid · 13:00</div>
+        <div class="serif text-[26px] mt-1">Discharge <span class="accent">85 MW</span></div>
+        <div class="text-[13px] ink2 mt-1">+ 30 MW RAISEREG · co-optimised</div>
+        <div class="mt-4 grid grid-cols-3 gap-2 text-[12px]">
+          <div><div class="muted">EV</div><div class="serif text-[20px] pos">+$214</div></div>
+          <div><div class="muted">SoC after</div><div class="serif text-[20px]">42%</div></div>
+          <div><div class="muted">MLF</div><div class="serif text-[20px]">0.97</div></div>
+        </div>
+        <button class="mt-3 w-full text-[13px] py-2.5 rounded-full bg-[#0e0e10] text-white font-medium">Submit bid →</button>
+      </div>
+
+      <!-- Next forecast -->
+      <div class="bento p-5">
+        <div class="text-[12px] muted uppercase tracking-widest">Next intervals · P5MIN</div>
+        <div class="mt-2 grid grid-cols-4 text-[13px]">
+          <div class="border-r hair pr-3"><div class="muted text-[11px]">+5m</div><div class="serif text-[20px]">$91</div></div>
+          <div class="border-r hair px-3"><div class="muted text-[11px]">+10m</div><div class="serif text-[20px]">$96</div></div>
+          <div class="border-r hair px-3"><div class="muted text-[11px]">+30m</div><div class="serif text-[20px] neg">$124</div></div>
+          <div class="pl-3"><div class="muted text-[11px]">+60m</div><div class="serif text-[20px]">$108</div></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- 90-day heatmap -->
+  <section class="bento p-6">
+    <div class="flex items-end justify-between mb-4">
+      <div>
+        <div class="text-[12px] muted uppercase tracking-widest">90-day price heatmap</div>
+        <h3 class="serif text-[24px] mt-1">Where the <span class="italic accent">heat</span> has been</h3>
+      </div>
+      <div class="text-[12px] ink2">daily MAX(RRP) · darker = higher peak · today on the right</div>
+    </div>
+    <div id="heat3" class="space-y-2"></div>
+    <div class="flex items-center gap-4 mt-4 text-[11px] ink2">
+      <span class="muted uppercase tracking-widest">Scale</span>
+      <div class="flex gap-1.5 items-center"><span class="w-3 h-3 rounded-sm" style="background:#f3f1ec"></span>$0</div>
+      <div class="flex gap-1.5 items-center"><span class="w-3 h-3 rounded-sm" style="background:#ffe5cf"></span>$100</div>
+      <div class="flex gap-1.5 items-center"><span class="w-3 h-3 rounded-sm" style="background:#ff9b66"></span>$300</div>
+      <div class="flex gap-1.5 items-center"><span class="w-3 h-3 rounded-sm" style="background:#c53b3b"></span>$600+ (APC)</div>
+    </div>
+  </section>
+
+  <footer class="text-[11px] muted text-center pt-4">
+    Powered by NEMWEB · paper trading non-binding · v0.9
+  </footer>
+</main>
+
+<script>
+  const rs = ['NSW','QLD','VIC','SA','TAS'];
+  const days = 60;
+  const root = document.getElementById('heat3');
+  function color(v) {
+    // smooth gradient through cream → peach → orange → red
+    if (v < 0.25) return `rgba(255,229,207,${0.3 + v*2})`;
+    if (v < 0.55) return `rgba(255,180,120,${0.4 + v*0.8})`;
+    if (v < 0.85) return `rgba(255,120,70,${0.55 + v*0.5})`;
+    return `rgba(197,59,59,${0.7 + v*0.3})`;
+  }
+  for (const r of rs) {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3';
+    const lbl = document.createElement('div');
+    lbl.className = 'text-[11px] muted uppercase tracking-widest w-10';
+    lbl.textContent = r;
+    row.appendChild(lbl);
+    const strip = document.createElement('div');
+    strip.className = 'flex-1 grid gap-[3px]';
+    strip.style.gridTemplateColumns = `repeat(${days}, 1fr)`;
+    for (let i=0;i<days;i++) {
+      const v = Math.random();
+      const c = document.createElement('div');
+      c.className = 'h-5 rounded-[3px]';
+      c.style.background = color(v);
+      c.title = `${r} · day −${days-i}: $${(v*450+30).toFixed(0)}`;
+      strip.appendChild(c);
+    }
+    row.appendChild(strip);
+    root.appendChild(row);
+  }
+</script>
+
+</body>
+</html>

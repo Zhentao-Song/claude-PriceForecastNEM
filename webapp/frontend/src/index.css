@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+               system-ui, Inter, 'Helvetica Neue', sans-serif;
+  background: #ffffff;
+  color: #1d1d1f;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  letter-spacing: -0.005em;
+}
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Subtle hover lift for cards. */
+.card-hover { transition: box-shadow 160ms ease, transform 160ms ease; }
+.card-hover:hover { transform: translateY(-1px); }
+
+/* MarketTimeline NOW dot — soft "breathing" halo. Two pulses: an inner
+   glow that intensifies, plus an outer ring that expands then fades.
+   Both are CSS-only so we don't burn CPU on the JS clock tick. */
+@keyframes timeline-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(29, 29, 31, 0.5),
+                0 0 0 6px rgba(29, 29, 31, 0.18),
+                0 1px 4px rgba(0,0,0,0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(29, 29, 31, 0.10),
+                0 0 0 12px rgba(29, 29, 31, 0.04),
+                0 1px 4px rgba(0,0,0,0.25);
+  }
+}
+.timeline-pulse {
+  animation: timeline-pulse 2.4s ease-in-out infinite;
+}

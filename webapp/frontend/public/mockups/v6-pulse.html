@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>v6 · Pulse Map — NEM Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    background:
+      radial-gradient(1200px 700px at 60% 40%, rgba(60,40,140,0.18), transparent 60%),
+      radial-gradient(800px 500px at 0% 100%, rgba(255,150,90,0.10), transparent 60%),
+      #04060e;
+    color:#e5e7ef; min-height:100vh;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .nums { font-variant-numeric: tabular-nums; }
+  .glass { background: rgba(12,14,24,0.55); backdrop-filter: blur(14px); border:1px solid rgba(255,255,255,0.06); }
+  .chip { border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:3px 10px; font-size:11px; color:#cfd5e1; }
+  .pulse { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:0.55; } }
+  .twinkle { animation: twinkle 3.2s ease-in-out infinite; }
+  @keyframes twinkle { 0%,100% { opacity:0.85; } 50% { opacity:0.4; } }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:999px; }
+  .fuel-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); font-size:11px; }
+</style>
+</head>
+<body>
+
+<header class="px-7 py-5 flex items-center gap-6 border-b border-white/5">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-md flex items-center justify-center text-[12px] font-bold" style="background:linear-gradient(135deg,#bd84ff,#5cc8ff); color:#0a0a0a;">NW</div>
+    <div>
+      <div class="text-[14px] font-semibold">NEM <span class="text-white/40">/</span> pulse map</div>
+      <div class="text-[10px] uppercase tracking-[0.28em] text-white/40">a star for every generator · brightness = MW now</div>
+    </div>
+  </div>
+  <div class="ml-auto flex items-center gap-3 text-[11px]">
+    <span class="chip flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse"></span>live</span>
+    <span class="chip mono">2026-05-19 · 12:48 AEST</span>
+    <span class="chip">486 DUIDs · 318 reporting</span>
+  </div>
+</header>
+
+<main class="px-7 py-6 grid grid-cols-12 gap-5">
+
+  <!-- Left: fuel constellations legend -->
+  <aside class="col-span-2 space-y-3">
+    <div class="text-[10px] uppercase tracking-[0.28em] text-white/40 mb-2">Constellations</div>
+    <div id="legend" class="space-y-2"></div>
+
+    <div class="h-px bg-white/5 my-4"></div>
+    <div class="text-[10px] uppercase tracking-[0.28em] text-white/40 mb-2">Demand centers</div>
+    <ul class="space-y-2 text-[12px]">
+      <li class="flex items-center justify-between"><span class="text-white/80">Sydney</span><span class="mono nums text-white/60">3.4 GW</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">Brisbane</span><span class="mono nums text-white/60">2.8 GW</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">Melbourne</span><span class="mono nums text-white/60">3.2 GW</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">Adelaide</span><span class="mono nums text-white/60">1.1 GW</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">Hobart</span><span class="mono nums text-white/60">0.6 GW</span></li>
+    </ul>
+
+    <div class="h-px bg-white/5 my-4"></div>
+    <div class="text-[10px] uppercase tracking-[0.28em] text-white/40 mb-2">Interconnectors</div>
+    <ul class="space-y-2 text-[11px]">
+      <li class="flex items-center justify-between"><span class="text-white/80">QNI Q→N</span><span class="mono nums" style="color:#74e0a2">+820</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">VIC↔NSW</span><span class="mono nums" style="color:#74e0a2">+412</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">VIC↔SA</span><span class="mono nums" style="color:#ff7b7b">−218</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">Basslink</span><span class="mono nums" style="color:#74e0a2">+340</span></li>
+      <li class="flex items-center justify-between"><span class="text-white/80">Murraylink</span><span class="mono nums" style="color:#ff7b7b">−60</span></li>
+    </ul>
+  </aside>
+
+  <!-- Center: pulse map -->
+  <section class="col-span-7 glass rounded-2xl p-4 relative overflow-hidden" style="min-height:680px;">
+    <div class="absolute top-4 left-5 z-10">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">NEM · live grid</div>
+      <h1 class="text-[28px] font-semibold mt-1">All of Australia, one heartbeat.</h1>
+      <div class="text-[11px] text-white/50 mt-1">click a node to inspect · hover for unit detail</div>
+    </div>
+    <div class="absolute top-4 right-5 z-10 flex gap-1.5 text-[11px] mono">
+      <button class="chip">SCATTER</button>
+      <button class="chip bg-white/10">GLOW</button>
+      <button class="chip">FLOW</button>
+    </div>
+    <svg id="map" viewBox="0 0 900 700" class="w-full h-[680px]"></svg>
+  </section>
+
+  <!-- Right: timeline + KPI -->
+  <aside class="col-span-3 space-y-4">
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">NEM-wide right now</div>
+      <div class="mt-1 text-[42px] font-semibold leading-none nums">30.4<span class="text-[20px] text-white/40"> GW</span></div>
+      <div class="text-[12px] text-white/50 mt-1">supply · 28.7 GW demand · +1.7 net export</div>
+      <div class="h-px bg-white/5 my-4"></div>
+
+      <!-- Donut showing fuel share -->
+      <div class="flex items-center gap-4">
+        <svg viewBox="0 0 120 120" class="w-[120px] h-[120px]">
+          <g id="donut"></g>
+          <text x="60" y="58" text-anchor="middle" font-size="22" fill="#fff" font-family="Space Grotesk" font-weight="600">37%</text>
+          <text x="60" y="74" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.5)" font-family="JetBrains Mono">RENEWABLES</text>
+        </svg>
+        <ul id="donutLegend" class="text-[11px] space-y-1 flex-1"></ul>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-5" style="background: linear-gradient(135deg, rgba(189,132,255,0.06), rgba(92,200,255,0.06)), rgba(12,14,24,0.55);">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">Selected · Bayswater PS</div>
+      <div class="mt-1 text-[20px] font-semibold">NSW1 · black coal</div>
+      <div class="mt-3 grid grid-cols-2 gap-3 text-[12px]">
+        <div><div class="text-white/50">Output</div><div class="num-big nums text-[22px]">1,840 MW</div></div>
+        <div><div class="text-white/50">Capacity</div><div class="num-big nums text-[22px] text-white/70">2,640 MW</div></div>
+        <div><div class="text-white/50">Units online</div><div class="num-big nums text-[22px]">4 / 4</div></div>
+        <div><div class="text-white/50">Marginal cost</div><div class="num-big nums text-[22px]" style="color:#ffb547">$58</div></div>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-2">Activity · last 5 min</div>
+      <ul id="activity" class="space-y-2 text-[12px]"></ul>
+    </div>
+  </aside>
+
+  <!-- Bottom: 24h playback strip -->
+  <section class="col-span-12 glass rounded-2xl p-5">
+    <div class="flex items-baseline justify-between mb-3">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">24 h playback</div>
+        <div class="text-[18px] font-semibold mt-1">Watch the constellation breathe</div>
+      </div>
+      <div class="text-[11px] text-white/50">solar wakes at 06:00 · battery fires at 17:30 · coal holds the floor</div>
+    </div>
+    <div class="relative h-[110px] rounded-xl overflow-hidden" style="background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.005));">
+      <canvas id="playback" class="w-full h-full"></canvas>
+    </div>
+    <div class="flex justify-between text-[10px] mono text-white/40 mt-2 px-1">
+      <span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>24:00</span>
+    </div>
+  </section>
+</main>
+
+<footer class="px-7 py-4 text-[10px] mono text-white/40 border-t border-white/5 flex justify-between">
+  <span>nodes · <span id="ncount">—</span> · flows · <span id="fcount">—</span></span>
+  <span>build 4f8a9c · physics @ 60fps</span>
+</footer>
+
+<script>
+// ============================================================================
+// Fuel palette
+// ============================================================================
+const FUEL = {
+  coal_black: { name:'Black coal', color:'#a78b6d', glow:'rgba(167,139,109,0.55)', share: 0.36 },
+  coal_brown: { name:'Brown coal', color:'#c9905a', glow:'rgba(201,144,90,0.55)',  share: 0.11 },
+  gas:        { name:'Gas',        color:'#ff7a59', glow:'rgba(255,122,89,0.55)',  share: 0.07 },
+  hydro:      { name:'Hydro',      color:'#5cc8ff', glow:'rgba(92,200,255,0.55)',  share: 0.16 },
+  wind:       { name:'Wind',       color:'#74e0a2', glow:'rgba(116,224,162,0.55)', share: 0.11 },
+  solar:      { name:'Solar PV',   color:'#ffd166', glow:'rgba(255,209,102,0.55)', share: 0.10 },
+  battery:    { name:'Battery',    color:'#bd84ff', glow:'rgba(189,132,255,0.55)', share: 0.04 },
+  bioenergy:  { name:'Bio',        color:'#a3e063', glow:'rgba(163,224,99,0.45)',  share: 0.003 },
+};
+
+// Legend
+const lg = document.getElementById('legend');
+for (const k in FUEL) {
+  const row = document.createElement('div');
+  row.className = 'flex items-center justify-between text-[12px]';
+  row.innerHTML = `
+    <span class="flex items-center gap-2">
+      <span class="dot" style="background:${FUEL[k].color}; box-shadow:0 0 8px ${FUEL[k].glow};"></span>
+      <span class="text-white/80">${FUEL[k].name}</span>
+    </span>
+    <span class="mono nums text-white/45">${(FUEL[k].share*100).toFixed(0)}%</span>`;
+  lg.appendChild(row);
+}
+
+// Donut
+const donut = document.getElementById('donut');
+const donutLegend = document.getElementById('donutLegend');
+(function buildDonut(){
+  const cx = 60, cy = 60, R = 48, r = 32;
+  const entries = Object.entries(FUEL).sort((a,b)=>b[1].share-a[1].share);
+  let start = -Math.PI/2;
+  for (const [k, f] of entries) {
+    const angle = f.share * Math.PI * 2;
+    const end = start + angle;
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const x1 = cx + R*Math.cos(start), y1 = cy + R*Math.sin(start);
+    const x2 = cx + R*Math.cos(end),   y2 = cy + R*Math.sin(end);
+    const x3 = cx + r*Math.cos(end),   y3 = cy + r*Math.sin(end);
+    const x4 = cx + r*Math.cos(start), y4 = cy + r*Math.sin(start);
+    const large = angle > Math.PI ? 1 : 0;
+    const d = `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r} ${r} 0 ${large} 0 ${x4} ${y4} Z`;
+    p.setAttribute('d', d);
+    p.setAttribute('fill', f.color);
+    p.setAttribute('opacity', '0.9');
+    donut.appendChild(p);
+    start = end;
+
+    const li = document.createElement('li');
+    li.className = 'flex items-center justify-between';
+    li.innerHTML = `<span class="flex items-center gap-1.5"><span class="dot" style="background:${f.color}"></span>${f.name}</span><span class="mono nums text-white/50">${(f.share*100).toFixed(1)}%</span>`;
+    donutLegend.appendChild(li);
+  }
+})();
+
+// ============================================================================
+// AU regions — rough simplified geometry (so we don't need a geojson loader)
+// Approximations of state silhouettes in our 900x700 svg.
+// ============================================================================
+const STATE_PATHS = {
+  WA:  'M40,180 L260,160 L320,220 L320,520 L60,540 L40,400 Z',
+  NT:  'M320,160 L470,150 L470,360 L320,360 Z',
+  SA:  'M320,360 L470,360 L500,480 L440,580 L320,580 Z',
+  QLD: 'M470,150 L760,170 L820,330 L700,380 L500,360 L470,260 Z',
+  NSW: 'M500,360 L700,380 L800,460 L640,520 L520,500 Z',
+  VIC: 'M520,500 L640,520 L680,570 L520,580 Z',
+  TAS: 'M580,620 L660,615 L660,670 L580,675 Z',
+};
+
+// Demand centers (cities) with approx svg coords
+const CITIES = [
+  { name:'Perth',     x: 145, y: 470, demand: 2.8 },
+  { name:'Adelaide',  x: 430, y: 560, demand: 1.1 },
+  { name:'Melbourne', x: 600, y: 575, demand: 3.2 },
+  { name:'Sydney',    x: 760, y: 480, demand: 3.4 },
+  { name:'Brisbane',  x: 770, y: 290, demand: 2.8 },
+  { name:'Hobart',    x: 625, y: 645, demand: 0.6 },
+  { name:'Darwin',    x: 400, y: 165, demand: 0.3 },
+  { name:'Canberra',  x: 720, y: 510, demand: 0.4 },
+];
+
+// Generators — clustered to be visually pleasing within state bounds
+// Each: state-anchored coords with small jitter
+function bucketBy(arr, n) {
+  const out = [];
+  for (let i=0;i<n;i++) out.push(arr[i%arr.length]);
+  return out;
+}
+const SITES = []; // each { x, y, fuel, mw, capacity, name }
+function jitter(x, y, n, w=80, h=60) {
+  const out = [];
+  for (let i=0;i<n;i++) {
+    out.push({ x: x + (Math.random()-0.5)*w, y: y + (Math.random()-0.5)*h });
+  }
+  return out;
+}
+// QLD: gas + black coal + solar in north
+jitter(700, 330, 18, 160, 80).forEach((p,i)=>SITES.push({...p, fuel:'coal_black', mw: 250+Math.random()*400, cap:700, name:'QLD_BL_'+i, state:'QLD'}));
+jitter(620, 240, 14, 180, 80).forEach((p,i)=>SITES.push({...p, fuel:'solar',      mw: 60+Math.random()*200,  cap:300, name:'QLD_SOL_'+i, state:'QLD'}));
+jitter(560, 290, 6,  120, 60).forEach((p,i)=>SITES.push({...p, fuel:'gas',        mw: 80+Math.random()*180,  cap:300, name:'QLD_GAS_'+i, state:'QLD'}));
+
+// NSW: black coal (Bayswater/Eraring), wind in Hunter, solar inland
+jitter(640, 470, 14, 160, 60).forEach((p,i)=>SITES.push({...p, fuel:'coal_black', mw: 400+Math.random()*600, cap:1200, name:'NSW_BL_'+i, state:'NSW'}));
+jitter(600, 430, 10, 160, 60).forEach((p,i)=>SITES.push({...p, fuel:'wind',       mw: 40+Math.random()*180,  cap:250,  name:'NSW_W_'+i, state:'NSW'}));
+jitter(550, 470, 10, 150, 60).forEach((p,i)=>SITES.push({...p, fuel:'solar',      mw: 30+Math.random()*180,  cap:300,  name:'NSW_SOL_'+i, state:'NSW'}));
+jitter(720, 480, 4,  60, 30).forEach((p,i)=>SITES.push({...p, fuel:'battery',     mw: 50+Math.random()*100,  cap:150,  name:'NSW_BAT_'+i, state:'NSW'}));
+jitter(700, 460, 4,  60, 30).forEach((p,i)=>SITES.push({...p, fuel:'hydro',       mw: 100+Math.random()*200, cap:400,  name:'NSW_HYD_'+i, state:'NSW'}));
+
+// VIC: brown coal in Latrobe, wind in west, solar central
+jitter(560, 555, 8, 80, 30).forEach((p,i)=>SITES.push({...p, fuel:'coal_brown', mw: 400+Math.random()*500, cap:1000, name:'VIC_BR_'+i, state:'VIC'}));
+jitter(540, 535, 10, 160, 40).forEach((p,i)=>SITES.push({...p, fuel:'wind',     mw: 50+Math.random()*200,  cap:300,  name:'VIC_W_'+i, state:'VIC'}));
+jitter(610, 540, 4, 60, 30).forEach((p,i)=>SITES.push({...p, fuel:'gas',       mw: 60+Math.random()*120,  cap:200,  name:'VIC_GAS_'+i, state:'VIC'}));
+jitter(620, 555, 3, 50, 25).forEach((p,i)=>SITES.push({...p, fuel:'battery',   mw: 30+Math.random()*80,   cap:120,  name:'VIC_BAT_'+i, state:'VIC'}));
+
+// SA: wind heavy + solar + gas
+jitter(400, 520, 14, 140, 80).forEach((p,i)=>SITES.push({...p, fuel:'wind',  mw: 50+Math.random()*200, cap:280, name:'SA_W_'+i, state:'SA'}));
+jitter(420, 480, 10, 140, 60).forEach((p,i)=>SITES.push({...p, fuel:'solar', mw: 60+Math.random()*200, cap:300, name:'SA_SOL_'+i, state:'SA'}));
+jitter(440, 530, 4,  60, 30).forEach((p,i)=>SITES.push({...p, fuel:'gas',   mw: 40+Math.random()*120, cap:200, name:'SA_GAS_'+i, state:'SA'}));
+jitter(450, 545, 3,  50, 25).forEach((p,i)=>SITES.push({...p, fuel:'battery', mw: 30+Math.random()*80, cap:100, name:'SA_BAT_'+i, state:'SA'}));
+
+// TAS: mostly hydro
+jitter(620, 645, 10, 60, 25).forEach((p,i)=>SITES.push({...p, fuel:'hydro', mw: 60+Math.random()*200, cap:300, name:'TAS_HYD_'+i, state:'TAS'}));
+jitter(610, 632, 3, 40, 20).forEach((p,i)=>SITES.push({...p, fuel:'wind',  mw: 30+Math.random()*100, cap:150, name:'TAS_W_'+i, state:'TAS'}));
+
+// WA: gas + solar + coal
+jitter(150, 440, 8, 100, 60).forEach((p,i)=>SITES.push({...p, fuel:'gas',        mw: 80+Math.random()*250, cap:400, name:'WA_GAS_'+i, state:'WA'}));
+jitter(170, 470, 6, 100, 60).forEach((p,i)=>SITES.push({...p, fuel:'coal_black', mw: 200+Math.random()*350, cap:600, name:'WA_BL_'+i, state:'WA'}));
+jitter(200, 410, 8, 120, 60).forEach((p,i)=>SITES.push({...p, fuel:'solar',      mw: 40+Math.random()*180, cap:280, name:'WA_SOL_'+i, state:'WA'}));
+jitter(160, 380, 4, 60, 30).forEach((p,i)=>SITES.push({...p, fuel:'wind',        mw: 40+Math.random()*120, cap:200, name:'WA_W_'+i, state:'WA'}));
+
+document.getElementById('ncount').textContent = SITES.length;
+
+// Interconnectors (flow direction by sign)
+const ICS = [
+  { from:[700,290], to:[720,460], name:'QNI Q→N',   flow: 0.82, color:'#74e0a2' },
+  { from:[640,510], to:[640,540], name:'VIC↔NSW',   flow: 0.55, color:'#74e0a2' },
+  { from:[470,540], to:[580,560], name:'VIC↔SA',    flow:-0.40, color:'#ff7b7b' },
+  { from:[640,580], to:[620,640], name:'Basslink',  flow: 0.65, color:'#74e0a2' },
+];
+document.getElementById('fcount').textContent = ICS.length;
+
+// ============================================================================
+// Draw map SVG
+// ============================================================================
+const map = document.getElementById('map');
+const svgNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs={}) {
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+// Defs: glows per fuel
+const defs = el('defs'); map.appendChild(defs);
+for (const k in FUEL) {
+  const g = el('radialGradient', { id:`glow_${k}`, cx:'50%', cy:'50%', r:'50%' });
+  g.appendChild(el('stop', { offset:'0%', 'stop-color': FUEL[k].color, 'stop-opacity':'1' }));
+  g.appendChild(el('stop', { offset:'40%', 'stop-color': FUEL[k].color, 'stop-opacity':'0.35' }));
+  g.appendChild(el('stop', { offset:'100%', 'stop-color': FUEL[k].color, 'stop-opacity':'0' }));
+  defs.appendChild(g);
+}
+// flow gradient
+const fg = el('linearGradient', { id:'flow_grad', x1:'0%', y1:'0%', x2:'100%', y2:'0%' });
+fg.appendChild(el('stop', { offset:'0%', 'stop-color':'#5cc8ff', 'stop-opacity':'0' }));
+fg.appendChild(el('stop', { offset:'50%', 'stop-color':'#5cc8ff', 'stop-opacity':'0.9' }));
+fg.appendChild(el('stop', { offset:'100%', 'stop-color':'#5cc8ff', 'stop-opacity':'0' }));
+defs.appendChild(fg);
+
+// State silhouettes
+for (const s in STATE_PATHS) {
+  const p = el('path', { d: STATE_PATHS[s], fill: 'rgba(255,255,255,0.025)',
+    stroke: 'rgba(255,255,255,0.10)', 'stroke-width':1 });
+  map.appendChild(p);
+  // labels
+  const xs = STATE_PATHS[s].match(/(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)/g) || [];
+  if (xs.length > 0) {
+    const pts = xs.map(p => p.split(',').map(Number));
+    const cx = pts.reduce((s,p)=>s+p[0],0)/pts.length;
+    const cy = pts.reduce((s,p)=>s+p[1],0)/pts.length;
+    const t = el('text', { x: cx, y: cy, 'text-anchor':'middle',
+      fill:'rgba(255,255,255,0.18)', 'font-size':'40', 'font-family':'Space Grotesk',
+      'font-weight':'700', 'letter-spacing':'0.2em' });
+    t.textContent = s;
+    map.appendChild(t);
+  }
+}
+
+// Interconnector base lines
+const icLayer = el('g'); map.appendChild(icLayer);
+for (const ic of ICS) {
+  const l = el('line', { x1: ic.from[0], y1: ic.from[1], x2: ic.to[0], y2: ic.to[1],
+    stroke:'rgba(255,255,255,0.18)', 'stroke-width': 1 });
+  icLayer.appendChild(l);
+  // animated flow overlay
+  const a = el('line', { x1: ic.from[0], y1: ic.from[1], x2: ic.to[0], y2: ic.to[1],
+    stroke: ic.color, 'stroke-width': 2.5,
+    'stroke-dasharray':'6 12', 'stroke-linecap':'round', opacity: 0.85 });
+  icLayer.appendChild(a);
+  ic.el = a;
+  ic.dashOffset = 0;
+}
+
+// Cities as halos
+for (const c of CITIES) {
+  const halo = el('circle', { cx: c.x, cy: c.y, r: 18 + c.demand*5,
+    fill: 'rgba(255,200,120,0.06)' });
+  map.appendChild(halo);
+  const halo2 = el('circle', { cx: c.x, cy: c.y, r: 6 + c.demand*3,
+    fill: 'rgba(255,200,120,0.18)' });
+  map.appendChild(halo2);
+  const dot = el('circle', { cx: c.x, cy: c.y, r: 3, fill:'#ffd166' });
+  map.appendChild(dot);
+  const t = el('text', { x: c.x + 10, y: c.y - 6, fill:'rgba(255,255,255,0.65)',
+    'font-size': 11, 'font-family':'Space Grotesk', 'font-weight': 500 });
+  t.textContent = c.name;
+  map.appendChild(t);
+  const t2 = el('text', { x: c.x + 10, y: c.y + 8, fill:'rgba(255,255,255,0.4)',
+    'font-size': 9, 'font-family':'JetBrains Mono' });
+  t2.textContent = c.demand.toFixed(1) + ' GW';
+  map.appendChild(t2);
+}
+
+// Generator stars
+const starLayer = el('g'); map.appendChild(starLayer);
+for (const s of SITES) {
+  const f = FUEL[s.fuel];
+  const util = Math.min(1, s.mw / s.cap);
+  const r = 1.5 + util * 4.5;
+  // glow
+  const glow = el('circle', { cx: s.x, cy: s.y, r: r * 4,
+    fill: `url(#glow_${s.fuel})`, opacity: 0.7 });
+  starLayer.appendChild(glow);
+  // core
+  const core = el('circle', { cx: s.x, cy: s.y, r,
+    fill: f.color, opacity: 0.95 });
+  // pulse on phase
+  core.style.animation = `twinkle ${(2 + Math.random()*3).toFixed(2)}s ease-in-out infinite`;
+  core.style.animationDelay = `${(Math.random()*2).toFixed(2)}s`;
+  starLayer.appendChild(core);
+  s.glow = glow; s.core = core;
+}
+
+// "Constellation lines" — connect 3-5 nearest same-fuel stars within a state
+const constLayer = el('g'); map.appendChild(constLayer);
+for (const state of ['NSW','QLD','VIC','SA','TAS','WA']) {
+  for (const fk in FUEL) {
+    const same = SITES.filter(s => s.state === state && s.fuel === fk);
+    if (same.length < 2) continue;
+    // sort by mw desc, take top 6
+    const top = same.sort((a,b)=>b.mw-a.mw).slice(0, 6);
+    // connect each to nearest neighbor
+    for (let i=0;i<top.length-1;i++) {
+      const a = top[i];
+      let nearest = null, ndist = Infinity;
+      for (let j=i+1;j<top.length;j++) {
+        const b = top[j];
+        const d = (a.x-b.x)**2 + (a.y-b.y)**2;
+        if (d < ndist) { ndist = d; nearest = b; }
+      }
+      if (nearest) {
+        const ln = el('line', { x1:a.x, y1:a.y, x2:nearest.x, y2:nearest.y,
+          stroke: FUEL[fk].color, 'stroke-width': 0.4, opacity: 0.18 });
+        constLayer.appendChild(ln);
+      }
+    }
+  }
+}
+
+// Animate IC dashed flow + slight star pulse
+function animate() {
+  for (const ic of ICS) {
+    // negative flow = reverse direction
+    const speed = (ic.flow < 0 ? 1 : -1) * (0.4 + Math.abs(ic.flow));
+    ic.dashOffset += speed;
+    ic.el.setAttribute('stroke-dashoffset', ic.dashOffset);
+  }
+  requestAnimationFrame(animate);
+}
+animate();
+
+// ============================================================================
+// Activity list
+// ============================================================================
+const activityList = [
+  { fuel:'solar',   text:'Coopers Gap +85 MW', time:'00:12' },
+  { fuel:'battery', text:'Hornsdale dispatching 30 MW', time:'00:34' },
+  { fuel:'wind',    text:'Hornsdale wind +22 MW gust', time:'00:48' },
+  { fuel:'coal_black', text:'Bayswater U4 ramp −60 MW', time:'01:02' },
+  { fuel:'hydro',   text:'Tumut3 cleared 110 MW', time:'01:21' },
+  { fuel:'solar',   text:'Sun cattle station online', time:'01:45' },
+  { fuel:'battery', text:'RYAN1 charge 40 MW', time:'02:01' },
+];
+const act = document.getElementById('activity');
+for (const a of activityList) {
+  const f = FUEL[a.fuel];
+  const li = document.createElement('li');
+  li.className = 'flex items-center gap-2.5';
+  li.innerHTML = `<span class="dot" style="background:${f.color}; box-shadow:0 0 8px ${f.glow};"></span>
+    <span class="flex-1">${a.text}</span>
+    <span class="mono nums text-white/40 text-[11px]">${a.time}</span>`;
+  act.appendChild(li);
+}
+
+// ============================================================================
+// 24h playback bottom strip — heatmap-ish across hours
+// ============================================================================
+const pb = document.getElementById('playback');
+const pctx = pb.getContext('2d');
+function fitPB(){ pb.width = pb.clientWidth*2; pb.height = pb.clientHeight*2; pctx.setTransform(2,0,0,2,0,0); }
+window.addEventListener('resize', fitPB); fitPB();
+
+function drawPlayback() {
+  const w = pb.clientWidth, h = pb.clientHeight;
+  pctx.clearRect(0,0,w,h);
+  const fuels = Object.keys(FUEL);
+  const rowH = h / fuels.length;
+  const t0 = performance.now() * 0.0008;
+  for (let i=0;i<fuels.length;i++) {
+    const f = FUEL[fuels[i]];
+    for (let x=0;x<w;x+=2) {
+      const hr = (x/w)*24;
+      let v = f.share * 0.6;
+      if (fuels[i] === 'solar') v = Math.max(0, Math.sin((hr-6)/12 * Math.PI)) * 0.9;
+      else if (fuels[i] === 'wind') v = 0.5 + 0.4*Math.sin(hr*0.4 + t0);
+      else if (fuels[i] === 'battery') v = Math.max(0, Math.sin((hr-18)/6 * Math.PI)) * 0.9;
+      else if (fuels[i] === 'hydro') v = 0.4 + 0.2*Math.sin(hr*0.3 + t0);
+      else v = 0.5 + 0.05*Math.sin(hr*0.1 + t0);
+      v = Math.max(0, Math.min(1, v));
+      pctx.fillStyle = `rgba(${hexRGB(f.color)},${0.18 + v*0.78})`;
+      pctx.fillRect(x, i*rowH+2, 2, rowH-3);
+    }
+  }
+  // playhead at current hour 12.8
+  const ph = (12.8/24) * w;
+  pctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  pctx.lineWidth = 1;
+  pctx.beginPath(); pctx.moveTo(ph, 0); pctx.lineTo(ph, h); pctx.stroke();
+  requestAnimationFrame(drawPlayback);
+}
+function hexRGB(hex) {
+  const m = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return '255,255,255';
+  const n = parseInt(m[1], 16);
+  return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+}
+drawPlayback();
+</script>
+
+</body>
+</html>

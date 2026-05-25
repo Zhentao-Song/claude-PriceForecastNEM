@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "true",
+      "runtimeArgs": [],
+      "port": 5173,
+      "autoPort": false
+    }
+  ]
+}

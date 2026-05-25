@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>v4 · Particle Flow — NEM Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: 'Space Grotesk', system-ui, sans-serif; background:#05060a; color:#e3e5ec; min-height:100vh; overflow-x:hidden; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .nums { font-variant-numeric: tabular-nums; }
+  .glass { background: rgba(15,17,26,0.55); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); }
+  .grid-bg { background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px); background-size: 32px 32px; }
+  .fuel-dot { width:10px; height:10px; border-radius:2px; display:inline-block; }
+  .pulse-dot { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+  .chip { border:1px solid rgba(255,255,255,0.1); border-radius:999px; padding:3px 10px; font-size:11px; }
+  .demand-glow { background: radial-gradient(circle, rgba(255,200,80,0.35), rgba(255,200,80,0) 70%); }
+  canvas { display:block; }
+  .num-big { font-feature-settings: "tnum" on; letter-spacing: -0.01em; }
+</style>
+</head>
+<body class="grid-bg">
+
+<!-- Top bar -->
+<header class="px-7 py-5 flex items-center gap-6 border-b border-white/5">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-md flex items-center justify-center text-[12px] font-bold" style="background:linear-gradient(135deg,#ffb547,#ff5c8e); color:#0a0a0a;">NW</div>
+    <div>
+      <div class="text-[14px] font-semibold tracking-wide">NEM <span class="text-white/40">/</span> energy flow</div>
+      <div class="text-[10px] uppercase tracking-[0.25em] text-white/40">live · 5-min dispatch · NEMWEB</div>
+    </div>
+  </div>
+  <div class="ml-auto flex items-center gap-3 text-[11px]">
+    <span class="chip flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>streaming</span>
+    <span class="chip mono">2026-05-19 · 12:48</span>
+    <span class="chip">RYAN1 · 50% SoC · MLF 0.97</span>
+  </div>
+</header>
+
+<!-- Main hero -->
+<section class="relative">
+  <!-- The particle canvas covers this whole strip -->
+  <canvas id="flow" class="absolute inset-0 w-full h-full"></canvas>
+
+  <div class="relative pointer-events-none px-7 pt-6 pb-8 min-h-[640px] flex flex-col">
+    <!-- Heading -->
+    <div class="flex items-end justify-between mb-4">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">NEM-wide · live generation flow</div>
+        <h1 class="text-[34px] leading-[1.05] font-semibold mt-1">
+          <span class="num-big" id="totGen">30,420</span>
+          <span class="text-[20px] text-white/40">MW now serving</span>
+          <span class="num-big" id="totDem">28,710</span>
+          <span class="text-[20px] text-white/40">MW demand</span>
+        </h1>
+        <div class="text-[12px] text-white/50 mt-1">stream thickness = MW · particle speed inversely proportional to short-run marginal cost · darker = baseload, brighter = peakers</div>
+      </div>
+      <div class="pointer-events-auto flex gap-1 text-[11px] mono">
+        <button class="chip">NEM</button><button class="chip bg-white/10">NSW1</button><button class="chip">QLD1</button><button class="chip">VIC1</button><button class="chip">SA1</button><button class="chip">TAS1</button>
+      </div>
+    </div>
+
+    <!-- left labels column -->
+    <div class="grid grid-cols-12 gap-6 flex-1">
+      <aside class="col-span-3 space-y-3 mt-6 pointer-events-auto">
+        <div class="text-[10px] uppercase tracking-[0.28em] text-white/40 mb-1">source · fuel</div>
+        <div id="legend"></div>
+      </aside>
+
+      <div class="col-span-6"></div>
+
+      <aside class="col-span-3 space-y-3 mt-6 pointer-events-auto">
+        <div class="text-[10px] uppercase tracking-[0.28em] text-white/40 mb-1">load · region</div>
+        <div id="regions"></div>
+      </aside>
+    </div>
+
+    <!-- Bottom row: KPI numbers floating above the canvas -->
+    <div class="relative grid grid-cols-4 gap-4 mt-6">
+      <div class="glass rounded-2xl p-5 pointer-events-auto">
+        <div class="text-[10px] uppercase tracking-[0.28em] text-white/40">Renewables share</div>
+        <div class="mt-1 text-[34px] num-big font-semibold" style="color:#74e0a2;">37.4<span class="text-[18px] text-white/40">%</span></div>
+        <div class="h-1.5 rounded-full mt-3 bg-white/10 overflow-hidden">
+          <div class="h-full rounded-full" style="width:37.4%;background:linear-gradient(90deg,#ffd166,#74e0a2,#6df8ff)"></div>
+        </div>
+        <div class="text-[11px] text-white/50 mt-2">wind 11% · solar 5% · hydro 16% · battery 0.7% · bio 0.3%</div>
+      </div>
+      <div class="glass rounded-2xl p-5 pointer-events-auto">
+        <div class="text-[10px] uppercase tracking-[0.28em] text-white/40">Average $/MWh</div>
+        <div class="mt-1 text-[34px] num-big font-semibold" style="color:#ffb547;">$71</div>
+        <div class="text-[11px] text-white/50 mt-3">NSW $87 · QLD $112 · VIC $62 · SA −$13 · TAS $72</div>
+      </div>
+      <div class="glass rounded-2xl p-5 pointer-events-auto">
+        <div class="text-[10px] uppercase tracking-[0.28em] text-white/40">CO₂ intensity</div>
+        <div class="mt-1 text-[34px] num-big font-semibold" style="color:#ff7b7b;">0.62<span class="text-[18px] text-white/40">t/MWh</span></div>
+        <div class="text-[11px] text-white/50 mt-3">down 18% vs. 2024 same hour</div>
+      </div>
+      <div class="glass rounded-2xl p-5 pointer-events-auto">
+        <div class="text-[10px] uppercase tracking-[0.28em] text-white/40">RYAN1 paper PnL · today</div>
+        <div class="mt-1 text-[34px] num-big font-semibold" style="color:#74e0a2;">+$1,284</div>
+        <div class="text-[11px] text-white/50 mt-3">cum +$8,402 · 12 fills · 7 pending</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Region drilldown row -->
+<section class="px-7 py-7 grid grid-cols-12 gap-5">
+  <div class="col-span-8 glass rounded-2xl p-5 relative">
+    <div class="flex items-baseline justify-between mb-3">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.28em] text-white/40">NSW1 · last 24 h</div>
+        <div class="text-[20px] font-semibold mt-1">Fuel mix river · how the grid got here</div>
+      </div>
+      <div class="flex gap-1 text-[11px] mono">
+        <button class="chip">6h</button><button class="chip bg-white/10">24h</button><button class="chip">3d</button><button class="chip">7d</button>
+      </div>
+    </div>
+    <!-- Stacked area "river" — animated stroke offset to give a flowing feel -->
+    <canvas id="river" width="900" height="240" class="w-full h-[260px] rounded-xl"></canvas>
+    <div id="riverLegend" class="mt-3 flex flex-wrap gap-3 text-[11px] text-white/60"></div>
+  </div>
+
+  <aside class="col-span-4 glass rounded-2xl p-5">
+    <div class="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-3">RRP · NSW1 · last 1 h</div>
+    <div class="text-[42px] num-big font-semibold" style="color:#ffb547">$87.42</div>
+    <div class="text-[12px] text-emerald-300 mt-1">▼ $4.18 (−4.6%) vs 1 h ago</div>
+
+    <div class="h-px bg-white/5 my-4"></div>
+
+    <div class="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-2">Suggested bid · 13:00</div>
+    <div class="text-[20px] font-semibold">Discharge <span style="color:#ffb547">85 MW</span></div>
+    <div class="text-[12px] text-white/60 mt-1">+ 30 MW RAISEREG · EV +$214 · SoC after 42%</div>
+    <button class="mt-3 w-full text-[12px] py-2.5 rounded-full font-medium" style="background:linear-gradient(135deg,#ffb547,#ff5c8e); color:#0a0a0a;">Submit bid ⏎</button>
+
+    <div class="h-px bg-white/5 my-4"></div>
+
+    <div class="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-2">Binding constraint · now</div>
+    <div class="mono text-[12px]" style="color:#a78bfa">N::N_NIL_2 · mv +12.3 $/MW</div>
+    <div class="text-[11px] text-white/50 mt-1">NSW1 thermal limit constraining QNI flow</div>
+  </aside>
+</section>
+
+<footer class="px-7 py-4 text-[10px] mono text-white/40 border-t border-white/5 flex justify-between">
+  <span>fps <span id="fps">—</span> · particles <span id="pcount">—</span></span>
+  <span>scroll for fuel detail · click a region tile to focus</span>
+  <span>build 4f8a9c</span>
+</footer>
+
+<script>
+// ============================================================================
+// Data — fake "right now" snapshot for the NEM
+// ============================================================================
+const FUELS = [
+  { key:'coal_black', name:'Black coal',  mw: 11200, color:'#4a3b2c', speed:0.30, character:'baseload steady', vibe:'steady' },
+  { key:'coal_brown', name:'Brown coal',  mw:  3400, color:'#6b4a32', speed:0.28, character:'baseload steady', vibe:'steady' },
+  { key:'gas',        name:'Gas (CCGT/OCGT)', mw: 2100, color:'#ff7a59', speed:0.55, character:'mid-merit', vibe:'steady' },
+  { key:'hydro',      name:'Hydro',       mw:  4800, color:'#5cc8ff', speed:0.85, character:'fast dispatch', vibe:'flow' },
+  { key:'wind',       name:'Wind',        mw:  3200, color:'#74e0a2', speed:1.00, character:'gusty', vibe:'gusty' },
+  { key:'solar',      name:'Solar PV',    mw:  1400, color:'#ffd166', speed:1.20, character:'midday peak', vibe:'burst' },
+  { key:'battery',    name:'Battery',     mw:   200, color:'#bd84ff', speed:1.40, character:'arbitrage', vibe:'burst' },
+  { key:'bioenergy',  name:'Bio',         mw:   120, color:'#a3e063', speed:0.50, character:'baseload', vibe:'steady' },
+];
+
+const REGIONS = [
+  { id:'NSW1', name:'NSW', demand: 8142, color:'#ffb547' },
+  { id:'QLD1', name:'QLD', demand: 7820, color:'#ff5c8e' },
+  { id:'VIC1', name:'VIC', demand: 6450, color:'#6df8ff' },
+  { id:'SA1',  name:'SA',  demand: 2210, color:'#74e0a2' },
+  { id:'TAS1', name:'TAS', demand: 1190, color:'#a78bfa' },
+];
+
+// ============================================================================
+// Render legend / region columns
+// ============================================================================
+const legend = document.getElementById('legend');
+for (const f of FUELS) {
+  const sharePct = (f.mw / FUELS.reduce((s,x)=>s+x.mw,0)) * 100;
+  const row = document.createElement('div');
+  row.className = 'flex items-center gap-3 py-1';
+  row.innerHTML = `
+    <span class="fuel-dot" style="background:${f.color}"></span>
+    <div class="flex-1 min-w-0">
+      <div class="text-[12px] font-medium truncate">${f.name}</div>
+      <div class="text-[10px] uppercase tracking-widest text-white/40">${f.character}</div>
+    </div>
+    <div class="text-right">
+      <div class="mono text-[13px] nums">${f.mw.toLocaleString()} MW</div>
+      <div class="mono text-[10px] text-white/40 nums">${sharePct.toFixed(1)}%</div>
+    </div>`;
+  legend.appendChild(row);
+}
+
+const regions = document.getElementById('regions');
+for (const r of REGIONS) {
+  const row = document.createElement('div');
+  row.className = 'flex items-center gap-3 py-1.5';
+  row.innerHTML = `
+    <div class="w-2 h-7 rounded-full demand-glow" style="background:${r.color}"></div>
+    <div class="flex-1">
+      <div class="text-[12px] font-medium">${r.name}</div>
+      <div class="text-[10px] uppercase tracking-widest text-white/40">${r.id}</div>
+    </div>
+    <div class="text-right">
+      <div class="mono text-[13px] nums">${r.demand.toLocaleString()} MW</div>
+      <div class="text-[10px] text-white/40">load</div>
+    </div>`;
+  regions.appendChild(row);
+}
+
+// ============================================================================
+// Particle flow canvas
+// ============================================================================
+const canvas = document.getElementById('flow');
+const ctx = canvas.getContext('2d');
+let W=0, H=0, DPR = Math.min(window.devicePixelRatio||1, 2);
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize); resize();
+
+// Sources are anchored to the left column band, regions to the right column band.
+// We position them by index in the visible column areas (rough px).
+function srcY(i) {
+  // Left labels start at ~280px from top, each row ~36px
+  return 308 + i * 36;
+}
+function regY(i) {
+  return 308 + i * 44;
+}
+const SRC_X = 290;          // x where particles spawn (near right edge of fuel label)
+const DST_X_FRAC = 0.78;    // particles converge near right column
+
+// Each source emits particles, each particle picks a region to flow toward.
+const particles = [];
+const MAX_P = 1200;
+
+function spawnFromSource(srcIdx, count) {
+  const f = FUELS[srcIdx];
+  for (let k=0; k<count; k++) {
+    const r = REGIONS[Math.floor(Math.random()*REGIONS.length)];
+    const ri = REGIONS.indexOf(r);
+    const startY = srcY(srcIdx) + (Math.random()-0.5)*8;
+    const endY = regY(ri) + (Math.random()-0.5)*10;
+    const baseSpeed = 0.6 + f.speed * 1.4;
+    particles.push({
+      f, srcIdx, ri,
+      x: SRC_X + (Math.random()-0.5)*8,
+      y: startY,
+      ey: endY,
+      // path: bezier-ish — go right with slight vertical curve
+      vx: baseSpeed * (0.9 + Math.random()*0.3),
+      drift: (endY - startY),
+      age: 0,
+      life: 220 + Math.random()*80,
+      size: 1.4 + Math.random()*1.6,
+      vibe: f.vibe,
+    });
+    if (particles.length > MAX_P) particles.shift();
+  }
+}
+
+// emit rates roughly proportional to MW
+const totalMW = FUELS.reduce((s,f)=>s+f.mw,0);
+function tickEmissions() {
+  for (let i=0;i<FUELS.length;i++) {
+    const f = FUELS[i];
+    let baseRate = (f.mw / totalMW) * 14;  // particles per frame
+    // vibe modifications
+    if (f.vibe === 'gusty') {
+      baseRate *= (0.6 + 0.8 * (0.5 + 0.5 * Math.sin(performance.now()*0.0008 + i)));
+    } else if (f.vibe === 'burst') {
+      baseRate *= (0.3 + 1.0 * (0.5 + 0.5 * Math.sin(performance.now()*0.002 + i*1.3)));
+      if (Math.random() < 0.02) baseRate *= 3;
+    } else if (f.vibe === 'flow') {
+      baseRate *= (0.85 + 0.3 * Math.sin(performance.now()*0.0015 + i));
+    }
+    const n = Math.max(0, Math.round(baseRate));
+    if (n > 0) spawnFromSource(i, n);
+  }
+}
+
+let lastFPS = performance.now(), frames = 0, fps = 0;
+function draw() {
+  // motion blur trail
+  ctx.fillStyle = 'rgba(5,6,10,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  // draw faint connecting "spines" between source and sink columns
+  ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+  ctx.lineWidth = 1;
+  for (let i=0;i<FUELS.length;i++) {
+    ctx.beginPath();
+    ctx.moveTo(SRC_X, srcY(i));
+    const dx = W*DST_X_FRAC - SRC_X;
+    for (let t=0;t<=1;t+=0.05) {
+      const x = SRC_X + dx*t;
+      const y = srcY(i);
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // demand glow halos
+  for (let i=0;i<REGIONS.length;i++) {
+    const x = W*DST_X_FRAC;
+    const y = regY(i);
+    const grad = ctx.createRadialGradient(x, y, 1, x, y, 38);
+    grad.addColorStop(0, `${REGIONS[i].color}66`);
+    grad.addColorStop(1, `${REGIONS[i].color}00`);
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, 38, 0, Math.PI*2); ctx.fill();
+  }
+
+  // update + draw particles
+  tickEmissions();
+  for (let i=particles.length-1; i>=0; i--) {
+    const p = particles[i];
+    p.age++;
+    const t = p.age / p.life;
+    if (t >= 1) { particles.splice(i,1); continue; }
+    // x progresses with vx, but mapped to total distance
+    const dx = (W * DST_X_FRAC - SRC_X);
+    p.x = SRC_X + dx * t;
+    // y: ease into target
+    p.y = (srcY(p.srcIdx) + p.drift * easeInOutCubic(t));
+    // wobble for gusty/burst
+    if (p.vibe === 'gusty') p.y += Math.sin(p.age*0.18 + p.srcIdx) * 1.4;
+    if (p.vibe === 'burst') p.y += Math.sin(p.age*0.35 + p.srcIdx) * 0.6;
+
+    // draw — bright head + soft tail
+    ctx.beginPath();
+    ctx.fillStyle = p.f.color;
+    const alpha = Math.min(1, 1 - t * 0.4);
+    ctx.globalAlpha = alpha;
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // labels stay sharp — overlay subtle text near demand halos
+  ctx.font = '500 11px JetBrains Mono';
+  ctx.textBaseline = 'middle';
+  for (let i=0;i<REGIONS.length;i++) {
+    const x = W*DST_X_FRAC + 50;
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.fillText('', x, regY(i));
+  }
+
+  frames++;
+  const now = performance.now();
+  if (now - lastFPS > 600) {
+    fps = Math.round(frames * 1000 / (now - lastFPS));
+    document.getElementById('fps').textContent = fps;
+    document.getElementById('pcount').textContent = particles.length;
+    frames = 0; lastFPS = now;
+  }
+  requestAnimationFrame(draw);
+}
+function easeInOutCubic(t){ return t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2; }
+draw();
+
+// ============================================================================
+// "River" — 24h stacked area, animated
+// ============================================================================
+const r = document.getElementById('river');
+const rc = r.getContext('2d');
+function drawRiver() {
+  const rw = r.width, rh = r.height;
+  rc.clearRect(0,0,rw,rh);
+  // 96 buckets of 15-min over 24h, mock data
+  const N = 96;
+  const series = FUELS.map(f => {
+    const arr = [];
+    for (let i=0;i<N;i++) {
+      let base = f.mw / FUELS.reduce((s,x)=>s+x.mw,0);
+      // solar curve
+      if (f.key === 'solar') {
+        const h = (i / N) * 24;
+        const day = Math.max(0, Math.sin((h-6)/12 * Math.PI));
+        base = base * day * 2.6;
+      } else if (f.key === 'wind') {
+        base *= 0.7 + 0.6 * (0.5 + 0.5 * Math.sin(i*0.18));
+      } else if (f.key === 'battery') {
+        const h = (i / N) * 24;
+        // charge midday (negative-ish drop), discharge evening peak
+        const peak = Math.max(0, Math.sin((h-18)/6 * Math.PI));
+        base = base * (peak * 4);
+      }
+      arr.push(Math.max(0, base));
+    }
+    return { f, arr };
+  });
+  // normalize each column so the totals roughly fit
+  // (in real data we'd scale to demand)
+  const totals = [];
+  for (let i=0;i<N;i++) {
+    let t = 0; for (const s of series) t += s.arr[i];
+    totals.push(t || 1);
+  }
+  // draw stacked areas bottom-up
+  const padX = 24, padY = 14;
+  const innerW = rw - padX*2, innerH = rh - padY*2;
+  const stack = new Array(N).fill(0);
+  // order: coal at bottom, renewables on top
+  const order = ['coal_black','coal_brown','gas','hydro','bioenergy','wind','solar','battery'];
+  const orderedSeries = order.map(k => series.find(s => s.f.key === k)).filter(Boolean);
+  // time-based animation offset for subtle drift
+  const tnow = performance.now() * 0.0005;
+  for (const s of orderedSeries) {
+    rc.beginPath();
+    rc.moveTo(padX, padY + innerH);
+    for (let i=0;i<N;i++) {
+      const x = padX + (i/(N-1))*innerW;
+      const v = s.arr[i] / totals[i];
+      const yTop = padY + innerH - (stack[i] + v) * innerH;
+      // small drift
+      const drift = Math.sin(i*0.15 + tnow + s.f.speed) * 0.6;
+      rc.lineTo(x, yTop + drift);
+    }
+    for (let i=N-1;i>=0;i--) {
+      const x = padX + (i/(N-1))*innerW;
+      const yBottom = padY + innerH - stack[i] * innerH;
+      const drift = Math.sin(i*0.15 + tnow + s.f.speed) * 0.6;
+      rc.lineTo(x, yBottom + drift);
+    }
+    rc.closePath();
+    const grad = rc.createLinearGradient(0, padY, 0, padY + innerH);
+    grad.addColorStop(0, hexA(s.f.color, 0.95));
+    grad.addColorStop(1, hexA(s.f.color, 0.55));
+    rc.fillStyle = grad;
+    rc.fill();
+    // update stack
+    for (let i=0;i<N;i++) stack[i] += s.arr[i] / totals[i];
+  }
+  // hairline grid
+  rc.strokeStyle = 'rgba(255,255,255,0.06)';
+  rc.lineWidth = 1;
+  for (let i=0;i<5;i++) {
+    const y = padY + innerH * (i/4);
+    rc.beginPath(); rc.moveTo(padX, y); rc.lineTo(rw - padX, y); rc.stroke();
+  }
+  // hour labels
+  rc.fillStyle = 'rgba(255,255,255,0.35)';
+  rc.font = '10px JetBrains Mono';
+  for (let h=0;h<=24;h+=4) {
+    const x = padX + (h/24) * innerW;
+    rc.fillText(`${h.toString().padStart(2,'0')}:00`, x-12, rh - 2);
+  }
+  requestAnimationFrame(drawRiver);
+}
+function hexA(hex, a) {
+  const m = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+drawRiver();
+
+// river legend
+const rl = document.getElementById('riverLegend');
+for (const f of FUELS) {
+  const c = document.createElement('div');
+  c.className = 'flex items-center gap-1.5';
+  c.innerHTML = `<span class="fuel-dot" style="background:${f.color}"></span>${f.name}`;
+  rl.appendChild(c);
+}
+</script>
+
+</body>
+</html>

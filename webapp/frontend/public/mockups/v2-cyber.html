@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>v2 · Cyber — NEM Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 90% -10%, rgba(255,0,170,0.18), transparent 60%),
+      radial-gradient(900px 500px at -10% 90%, rgba(0,210,255,0.18), transparent 60%),
+      radial-gradient(700px 400px at 50% 50%, rgba(150,80,255,0.10), transparent 70%),
+      #07061a;
+    color: #e6e9ff;
+    min-height: 100vh;
+  }
+  .display { font-family: 'Rajdhani', system-ui, sans-serif; letter-spacing: 0.02em; }
+  .nums    { font-variant-numeric: tabular-nums; }
+  .neon-cyan { color: #6df8ff; text-shadow: 0 0 10px rgba(109,248,255,0.6); }
+  .neon-mag  { color: #ff5cf2; text-shadow: 0 0 10px rgba(255,92,242,0.55); }
+  .neon-amber{ color: #ffd166; text-shadow: 0 0 10px rgba(255,209,102,0.45); }
+  .ring-1  { box-shadow: 0 0 0 1px rgba(109,248,255,0.18), 0 0 30px rgba(109,248,255,0.06); }
+  .glass {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
+      rgba(20,18,46,0.55);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(109,248,255,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(109,248,255,0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .pill { border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; }
+  .dot-live { box-shadow: 0 0 0 4px rgba(0,255,150,0.15); animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(0,255,150,0.05); } }
+  .gradient-text { background: linear-gradient(90deg,#6df8ff 10%,#ff5cf2 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .scan-h { position:relative; overflow:hidden; }
+  .scan-h::after { content:''; position:absolute; left:0; right:0; height:1px;
+    background: linear-gradient(90deg, transparent, #6df8ff, transparent);
+    animation: scan 2.6s linear infinite; }
+  @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+  .holo-border {
+    background:
+      linear-gradient(rgba(20,18,46,0.7), rgba(20,18,46,0.7)) padding-box,
+      linear-gradient(135deg, rgba(109,248,255,0.45), rgba(255,92,242,0.35) 50%, rgba(109,248,255,0.15)) border-box;
+    border: 1px solid transparent;
+  }
+  .selected { box-shadow: 0 0 0 1px rgba(109,248,255,0.5), 0 0 35px rgba(109,248,255,0.18); }
+  .ticker { animation: ticker 32s linear infinite; }
+  @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .corner::before, .corner::after { content:''; position:absolute; width:10px; height:10px; border-color:#6df8ff; }
+  .corner::before { top:-1px; left:-1px; border-top:1px solid; border-left:1px solid; }
+  .corner::after { bottom:-1px; right:-1px; border-bottom:1px solid; border-right:1px solid; }
+</style>
+</head>
+<body class="grid-bg">
+
+<header class="px-8 py-5 flex items-center gap-6">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-md holo-border flex items-center justify-center neon-cyan font-bold display text-sm">NW</div>
+    <div>
+      <div class="display text-[15px] font-semibold tracking-widest gradient-text">NEMWEM // CORE</div>
+      <div class="text-[10px] uppercase tracking-[0.25em] text-white/40">Live grid intelligence · v0.9</div>
+    </div>
+  </div>
+  <div class="ml-auto flex items-center gap-3 text-[11px]">
+    <span class="pill px-3 py-1 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400 dot-live"></span><span class="uppercase tracking-widest text-white/80">Live</span></span>
+    <span class="pill px-3 py-1 text-white/60">2026-05-19 · 12:48 AEST</span>
+    <span class="pill px-3 py-1 text-white/60">RYAN1 · 100MW · 50% SoC</span>
+    <button class="pill px-4 py-1 neon-cyan ring-1">⌘K  Command</button>
+  </div>
+</header>
+
+<!-- top banner ticker -->
+<div class="border-y border-white/5 overflow-hidden">
+  <div class="flex gap-10 py-2 text-[11px] uppercase tracking-widest text-white/50 whitespace-nowrap ticker">
+    <span>NSW1 <span class="neon-cyan nums">$87.42</span> ▼4.18</span>
+    <span>QLD1 <span class="neon-mag nums">$112.05</span> ▲22.6</span>
+    <span>VIC1 <span class="neon-cyan nums">$62.18</span> ▼1.04</span>
+    <span>SA1 <span class="neon-amber nums">−$12.74</span> NEG</span>
+    <span>TAS1 <span class="neon-cyan nums">$71.93</span> ▼0.42</span>
+    <span>WEM <span class="neon-mag nums">$94.20</span> ▲5.80</span>
+    <span class="text-white/30">·</span>
+    <span>FCAS RAISEREG QLD <span class="neon-mag nums">$42.10</span></span>
+    <span>BINDING N::N_NIL_2 mv <span class="neon-mag nums">+12.3</span></span>
+    <span>CPT 7D <span class="neon-amber nums">$487,210 / $1.398M</span></span>
+    <!-- repeat for seamless loop -->
+    <span>NSW1 <span class="neon-cyan nums">$87.42</span> ▼4.18</span>
+    <span>QLD1 <span class="neon-mag nums">$112.05</span> ▲22.6</span>
+    <span>VIC1 <span class="neon-cyan nums">$62.18</span> ▼1.04</span>
+    <span>SA1 <span class="neon-amber nums">−$12.74</span> NEG</span>
+    <span>TAS1 <span class="neon-cyan nums">$71.93</span> ▼0.42</span>
+    <span>WEM <span class="neon-mag nums">$94.20</span> ▲5.80</span>
+  </div>
+</div>
+
+<main class="px-8 py-8 space-y-6 max-w-[1480px] mx-auto">
+
+  <!-- Region tiles -->
+  <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <!-- selected NSW -->
+    <div class="relative corner glass selected rounded-2xl p-4 scan-h">
+      <div class="flex items-baseline justify-between"><span class="text-[10px] uppercase tracking-[0.25em] text-white/50">NSW</span><span class="text-[10px] text-white/40 nums">12:45</span></div>
+      <div class="mt-2 display text-[34px] font-semibold leading-none nums neon-cyan">$87.42</div>
+      <div class="mt-1 text-[11px] text-emerald-300">▼ 4.18 · −4.6%</div>
+      <svg viewBox="0 0 100 22" class="mt-2 w-full h-6">
+        <path d="M0,16 L20,15 L40,12 L60,8 L80,6 L100,9" fill="none" stroke="#6df8ff" stroke-width="1.4"/>
+      </svg>
+    </div>
+    <div class="relative corner glass rounded-2xl p-4">
+      <div class="flex items-baseline justify-between"><span class="text-[10px] uppercase tracking-[0.25em] text-white/50">QLD</span><span class="text-[10px] text-white/40 nums">12:45</span></div>
+      <div class="mt-2 display text-[34px] font-semibold leading-none nums neon-mag">$112</div>
+      <div class="mt-1 text-[11px] text-pink-300">▲ 22.6 · +25%</div>
+      <svg viewBox="0 0 100 22" class="mt-2 w-full h-6"><path d="M0,18 L20,16 L40,12 L60,8 L80,4 L100,2" fill="none" stroke="#ff5cf2" stroke-width="1.4"/></svg>
+    </div>
+    <div class="relative corner glass rounded-2xl p-4">
+      <div class="flex items-baseline justify-between"><span class="text-[10px] uppercase tracking-[0.25em] text-white/50">VIC</span><span class="text-[10px] text-white/40 nums">12:45</span></div>
+      <div class="mt-2 display text-[34px] font-semibold leading-none nums neon-cyan">$62.18</div>
+      <div class="mt-1 text-[11px] text-emerald-300">▼ 1.04 · −1.6%</div>
+      <svg viewBox="0 0 100 22" class="mt-2 w-full h-6"><path d="M0,12 L20,13 L40,12 L60,14 L80,12 L100,14" fill="none" stroke="#6df8ff" stroke-width="1.4"/></svg>
+    </div>
+    <div class="relative corner glass rounded-2xl p-4">
+      <div class="flex items-baseline justify-between"><span class="text-[10px] uppercase tracking-[0.25em] text-white/50">SA</span><span class="text-[10px] text-white/40 nums">12:45</span></div>
+      <div class="mt-2 display text-[34px] font-semibold leading-none nums neon-amber">−$12</div>
+      <div class="mt-1 text-[11px] text-emerald-300">▼ 41.2 · NEG</div>
+      <svg viewBox="0 0 100 22" class="mt-2 w-full h-6"><path d="M0,4 L20,7 L40,11 L60,15 L80,19 L100,21" fill="none" stroke="#ffd166" stroke-width="1.4"/></svg>
+    </div>
+    <div class="relative corner glass rounded-2xl p-4">
+      <div class="flex items-baseline justify-between"><span class="text-[10px] uppercase tracking-[0.25em] text-white/50">TAS</span><span class="text-[10px] text-white/40 nums">12:45</span></div>
+      <div class="mt-2 display text-[34px] font-semibold leading-none nums neon-cyan">$71.93</div>
+      <div class="mt-1 text-[11px] text-emerald-300">▼ 0.42 · −0.6%</div>
+      <svg viewBox="0 0 100 22" class="mt-2 w-full h-6"><path d="M0,12 L20,13 L40,12 L60,11 L80,12 L100,11" fill="none" stroke="#6df8ff" stroke-width="1.4"/></svg>
+    </div>
+    <div class="relative corner glass rounded-2xl p-4">
+      <div class="flex items-baseline justify-between"><span class="text-[10px] uppercase tracking-[0.25em] text-white/50">WEM</span><span class="text-[10px] text-white/40 nums">12:30</span></div>
+      <div class="mt-2 display text-[34px] font-semibold leading-none nums neon-mag">$94.20</div>
+      <div class="mt-1 text-[11px] text-pink-300">▲ 5.80 · +6.6%</div>
+      <svg viewBox="0 0 100 22" class="mt-2 w-full h-6"><path d="M0,12 L20,10 L40,9 L60,8 L80,7 L100,8" fill="none" stroke="#ff5cf2" stroke-width="1.4"/></svg>
+    </div>
+  </section>
+
+  <!-- Main grid: KPIs + Chart + CPT meter -->
+  <section class="grid grid-cols-12 gap-6">
+    <!-- KPIs left -->
+    <aside class="col-span-3 glass holo-border rounded-2xl p-5 space-y-4">
+      <div class="flex items-baseline justify-between">
+        <div>
+          <div class="text-[10px] uppercase tracking-[0.25em] text-white/40">Selected · region</div>
+          <div class="display text-[22px] font-semibold gradient-text">New South Wales</div>
+        </div>
+        <span class="neon-cyan text-[11px]">NSW1</span>
+      </div>
+      <div class="space-y-3 text-[12px]">
+        <div class="flex justify-between"><span class="text-white/50">Spot</span><span class="neon-cyan nums display text-lg">$87.42</span></div>
+        <div class="flex justify-between"><span class="text-white/50">VWAP 1h</span><span class="nums">$89.10</span></div>
+        <div class="flex justify-between"><span class="text-white/50">High 24h</span><span class="text-pink-300 nums">$218.40</span></div>
+        <div class="flex justify-between"><span class="text-white/50">Low 24h</span><span class="text-emerald-300 nums">−$18.10</span></div>
+        <div class="h-px bg-white/5"></div>
+        <div class="flex justify-between"><span class="text-white/50">Demand</span><span class="nums">8,142 MW</span></div>
+        <div class="flex justify-between"><span class="text-white/50">Available gen</span><span class="nums">10,210 MW</span></div>
+        <div class="flex justify-between"><span class="text-white/50">Net interchange</span><span class="nums text-emerald-300">+412 MW</span></div>
+        <div class="h-px bg-white/5"></div>
+        <div>
+          <div class="flex justify-between mb-1.5"><span class="text-white/50">CPT 7-day</span><span class="neon-amber nums">35%</span></div>
+          <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
+            <div class="h-full rounded-full" style="width:35%;background:linear-gradient(90deg,#6df8ff,#ffd166)"></div>
+          </div>
+          <div class="text-[10px] text-white/40 mt-1 nums">$487,210 of $1,398,100 APC trigger</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Chart center -->
+    <div class="col-span-6 glass rounded-2xl p-5 relative overflow-hidden">
+      <div class="flex items-baseline justify-between mb-3">
+        <div>
+          <div class="display text-[18px] font-semibold gradient-text">NSW1 · RRP</div>
+          <div class="text-[11px] text-white/50">Actual · forecast overlay · binding constraints</div>
+        </div>
+        <div class="flex gap-1 text-[11px]">
+          <button class="pill px-3 py-1 ring-1 neon-cyan">6H</button>
+          <button class="pill px-3 py-1 text-white/60">24H</button>
+          <button class="pill px-3 py-1 text-white/60">3D</button>
+          <button class="pill px-3 py-1 text-white/60">7D</button>
+        </div>
+      </div>
+      <svg viewBox="0 0 720 260" class="w-full h-[280px]">
+        <defs>
+          <linearGradient id="gline" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#6df8ff" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#6df8ff" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="gstroke" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#6df8ff"/>
+            <stop offset="100%" stop-color="#ff5cf2"/>
+          </linearGradient>
+          <filter id="glow"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <g stroke="rgba(255,255,255,0.06)">
+          <line x1="0" y1="60" x2="720" y2="60"/><line x1="0" y1="120" x2="720" y2="120"/>
+          <line x1="0" y1="180" x2="720" y2="180"/><line x1="0" y1="240" x2="720" y2="240"/>
+        </g>
+        <g fill="rgba(255,255,255,0.35)" font-size="10" font-family="Space Grotesk">
+          <text x="4" y="58">$300</text><text x="4" y="118">$200</text><text x="4" y="178">$100</text><text x="4" y="238">$50</text>
+        </g>
+        <path d="M0,210 L40,205 L80,200 L120,180 L160,175 L200,160 L240,120 L280,80 L320,55 L360,75 L400,110 L440,150 L480,170 L520,180 L560,190 L600,195 L640,200 L680,205 L720,210 L720,260 L0,260 Z" fill="url(#gline)"/>
+        <path d="M0,210 L40,205 L80,200 L120,180 L160,175 L200,160 L240,120 L280,80 L320,55 L360,75 L400,110 L440,150 L480,170 L520,180 L560,190 L600,195 L640,200 L680,205 L720,210" fill="none" stroke="url(#gstroke)" stroke-width="2" filter="url(#glow)"/>
+        <!-- forecast -->
+        <path d="M720,210 L760,200 L800,190" fill="none" stroke="url(#gstroke)" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.8"/>
+        <!-- APC -->
+        <line x1="0" y1="25" x2="720" y2="25" stroke="rgba(255,209,102,0.35)" stroke-dasharray="3 4"/>
+        <text x="650" y="20" fill="#ffd166" font-size="10" font-family="Space Grotesk">APC $600</text>
+        <!-- binding markers -->
+        <g fill="#ff5cf2" filter="url(#glow)">
+          <circle cx="280" cy="252" r="4"/><circle cx="300" cy="252" r="4"/><circle cx="320" cy="252" r="4"/>
+        </g>
+        <text x="284" y="248" fill="#ff5cf2" font-size="10">binding · N::N_NIL_2</text>
+        <!-- now -->
+        <line x1="720" y1="0" x2="720" y2="260" stroke="#6df8ff" stroke-dasharray="3 3" opacity="0.5"/>
+      </svg>
+    </div>
+
+    <!-- Right rail: AEMO forecast + actions -->
+    <aside class="col-span-3 space-y-4">
+      <div class="glass rounded-2xl p-5">
+        <div class="text-[10px] uppercase tracking-[0.25em] text-white/40">Next intervals · P5MIN</div>
+        <div class="mt-3 space-y-2 text-[13px]">
+          <div class="flex justify-between"><span class="text-white/60">+5 min</span><span class="nums">$91.20</span></div>
+          <div class="flex justify-between"><span class="text-white/60">+10 min</span><span class="nums">$96.40</span></div>
+          <div class="flex justify-between"><span class="text-white/60">+30 min</span><span class="neon-mag nums">$124.80</span></div>
+          <div class="flex justify-between"><span class="text-white/60">+1 hour</span><span class="nums">$108.60</span></div>
+        </div>
+      </div>
+      <div class="glass rounded-2xl p-5 holo-border">
+        <div class="text-[10px] uppercase tracking-[0.25em] text-white/40">Suggested bid · co-optimised</div>
+        <div class="mt-2 display text-[18px] gradient-text">Discharge 85 MW</div>
+        <div class="text-[12px] text-white/60 mt-1">+ 30 MW RAISEREG · target 13:00</div>
+        <div class="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+          <div class="pill px-3 py-2"><span class="text-white/50">EV</span> <span class="nums neon-cyan">+$214</span></div>
+          <div class="pill px-3 py-2"><span class="text-white/50">SoC after</span> <span class="nums">42%</span></div>
+        </div>
+        <button class="mt-3 w-full pill px-3 py-2 text-[12px] ring-1 neon-cyan">Submit · ⏎</button>
+      </div>
+    </aside>
+  </section>
+
+  <!-- 90-day heatmap -->
+  <section class="glass rounded-2xl p-5">
+    <div class="flex items-baseline justify-between mb-4">
+      <div>
+        <div class="display text-[18px] font-semibold gradient-text">90-day price heatmap</div>
+        <div class="text-[11px] text-white/50">daily MAX(RRP) by region · darker = higher peak</div>
+      </div>
+      <div class="text-[11px] text-white/50">May 19 ← Feb 18</div>
+    </div>
+    <div class="space-y-2">
+      <!-- 5 region rows, 60 cells each -->
+      <script>
+        // We'll render via a small inline script to keep markup short.
+      </script>
+      <div id="heat" class="space-y-1.5"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const regions = ['NSW1','QLD1','VIC1','SA1','TAS1'];
+  const cells = 60;
+  const heat = document.getElementById('heat');
+  for (const r of regions) {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2';
+    const lbl = document.createElement('div');
+    lbl.className = 'text-[10px] uppercase tracking-[0.2em] text-white/50 w-12';
+    lbl.textContent = r.replace(/1$/,'');
+    row.appendChild(lbl);
+    const strip = document.createElement('div');
+    strip.className = 'flex-1 grid gap-[2px]';
+    strip.style.gridTemplateColumns = `repeat(${cells}, 1fr)`;
+    for (let i=0;i<cells;i++) {
+      const v = Math.random();
+      const cell = document.createElement('div');
+      cell.className = 'h-4 rounded-[2px]';
+      // gradient from deep purple (low) to magenta to amber to cyan-spike
+      let bg;
+      if (v < 0.4)      bg = `rgba(40,40,90,${0.25 + v})`;
+      else if (v < 0.7) bg = `rgba(255,92,242,${0.25 + v*0.6})`;
+      else if (v < 0.9) bg = `rgba(255,209,102,${0.4 + v*0.5})`;
+      else              bg = `rgba(109,248,255,${0.5 + v*0.5})`;
+      cell.style.background = bg;
+      cell.title = `${r} · day −${cells-i}: $${(v*450+30).toFixed(0)}`;
+      strip.appendChild(cell);
+    }
+    row.appendChild(strip);
+    heat.appendChild(row);
+  }
+</script>
+
+</body>
+</html>

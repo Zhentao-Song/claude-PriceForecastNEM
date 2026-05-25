@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NEM dashboard · design mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; background:#0a0b10; color:#e6e9ef; }
+  .serif { font-family: 'Instrument Serif', Georgia, serif; }
+  .card { background:#11131c; border:1px solid rgba(255,255,255,0.06); border-radius:22px; overflow:hidden; transition: transform .25s ease, border-color .25s; }
+  .card:hover { transform: translateY(-4px); border-color: rgba(255,255,255,0.18); }
+  .chip { border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:3px 10px; font-size:11px; color:rgba(255,255,255,0.7); }
+  .accent { color:#ffb547; }
+  .accent-2 { color:#bd84ff; }
+  .accent-3 { color:#74e0a2; }
+  iframe { background:#0a0b10; }
+  .badge-new { background:linear-gradient(135deg,#ffb547,#ff5c8e); color:#0a0a0a; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<main class="max-w-[1400px] mx-auto px-8 py-10">
+  <header class="mb-8">
+    <div class="text-[12px] uppercase tracking-[0.28em] text-white/40">NEM dashboard · concept review</div>
+    <h1 class="serif text-[44px] leading-[1] mt-1">Three more, this time <span class="accent italic">moving</span>.</h1>
+    <p class="text-white/60 mt-2 text-[15px] max-w-3xl">v4–v6 put the generation mix in the center and let it move. Open one and let it run for 10 seconds before judging — the magic is in the motion. <a href="#legacy" class="underline">Still want the static set?</a></p>
+  </header>
+
+  <!-- v4–v6 row -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <a href="./v4-particles.html" target="_blank" class="card flex flex-col">
+      <div class="aspect-[16/10] relative overflow-hidden" style="background:#05060a;">
+        <iframe src="./v4-particles.html" class="w-[1600px] h-[1000px] origin-top-left absolute top-0 left-0" style="transform: scale(0.32);" loading="lazy" tabindex="-1"></iframe>
+      </div>
+      <div class="p-5">
+        <div class="flex items-baseline justify-between">
+          <h2 class="serif text-[24px]"><span class="accent">v4</span> · Particle Flow</h2>
+          <span class="chip badge-new font-medium">DYNAMIC</span>
+        </div>
+        <p class="text-[13px] text-white/65 mt-2 leading-relaxed">
+          Energy is a river. Each fuel emits a stream of colored particles from the left
+          column toward the load on the right. Coal flows slow & dark, wind gusts in
+          waves, solar bursts in pulses, batteries spike when they dispatch.
+          You can <em>see</em> which fuel is doing the work right now.
+        </p>
+        <div class="mt-3 flex flex-wrap gap-1.5 text-[10px]">
+          <span class="chip">canvas particles</span><span class="chip">vibe-coded fuel character</span><span class="chip">~1200 particles @ 60fps</span>
+        </div>
+      </div>
+    </a>
+
+    <a href="./v5-stack.html" target="_blank" class="card flex flex-col">
+      <div class="aspect-[16/10] relative overflow-hidden" style="background:#07090f;">
+        <iframe src="./v5-stack.html" class="w-[1600px] h-[1000px] origin-top-left absolute top-0 left-0" style="transform: scale(0.32);" loading="lazy" tabindex="-1"></iframe>
+      </div>
+      <div class="p-5">
+        <div class="flex items-baseline justify-between">
+          <h2 class="serif text-[24px]"><span class="accent-2">v5</span> · Living Stack</h2>
+          <span class="chip badge-new font-medium">DYNAMIC</span>
+        </div>
+        <p class="text-[13px] text-white/65 mt-2 leading-relaxed">
+          The grid as an aquarium. One big region column showing fuels stacked
+          floor-to-ceiling, each band's surface rippling with its own wave physics
+          (coal is calm, solar choppy, battery wild). Dashed "ghost" lines mark
+          where each layer was 24 h ago. Bubbles rise for every dispatched unit.
+        </p>
+        <div class="mt-3 flex flex-wrap gap-1.5 text-[10px]">
+          <span class="chip">SVG wave physics</span><span class="chip">24h ghost overlay</span><span class="chip">live bubble stream</span>
+        </div>
+      </div>
+    </a>
+
+    <a href="./v6-pulse.html" target="_blank" class="card flex flex-col">
+      <div class="aspect-[16/10] relative overflow-hidden" style="background:#04060e;">
+        <iframe src="./v6-pulse.html" class="w-[1600px] h-[1000px] origin-top-left absolute top-0 left-0" style="transform: scale(0.32);" loading="lazy" tabindex="-1"></iframe>
+      </div>
+      <div class="p-5">
+        <div class="flex items-baseline justify-between">
+          <h2 class="serif text-[24px]"><span class="accent-3">v6</span> · Pulse Map</h2>
+          <span class="chip badge-new font-medium">DYNAMIC</span>
+        </div>
+        <p class="text-[13px] text-white/65 mt-2 leading-relaxed">
+          Australia as a night sky. Every generator is a star, sized & glowing by
+          current MW; same-fuel stars are linked into faint constellations.
+          Interconnectors are flowing light streams whose direction shows which
+          way power is moving. Cities are warm halos of demand. 24-h playback
+          strip lets you watch the constellations breathe.
+        </p>
+        <div class="mt-3 flex flex-wrap gap-1.5 text-[10px]">
+          <span class="chip">SVG starfield · 200+ nodes</span><span class="chip">animated flow lines</span><span class="chip">24h playback</span>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- decision guide -->
+  <section class="mt-10 grid md:grid-cols-3 gap-6 text-[13px] text-white/70">
+    <div class="card p-5">
+      <div class="serif text-[20px] mb-2 accent">When to pick v4</div>
+      <p class="leading-relaxed">You want the homepage to instantly answer "where is the energy coming from right now?" The particles literally show fuel → region flow — like watching a power grid breathe.</p>
+    </div>
+    <div class="card p-5">
+      <div class="serif text-[20px] mb-2 accent-2">When to pick v5</div>
+      <p class="leading-relaxed">You like time-comparisons. The big aquarium with its 24h-ago ghost lines is the most readable answer to "are renewables actually displacing coal today?" Each fuel even has its own wave character.</p>
+    </div>
+    <div class="card p-5">
+      <div class="serif text-[20px] mb-2 accent-3">When to pick v6</div>
+      <p class="leading-relaxed">You want a screenshot people will share. Geographic context (which states, which interconnectors) plus the night-sky aesthetic. Best demo material, also genuinely useful for spotting regional concentration.</p>
+    </div>
+  </section>
+
+  <!-- legacy row -->
+  <section id="legacy" class="mt-16">
+    <div class="text-[12px] uppercase tracking-[0.28em] text-white/30">Earlier · static</div>
+    <h2 class="serif text-[28px] mt-1 text-white/70">v1–v3 · the first batch</h2>
+    <p class="text-white/45 mt-1 text-[13px]">Same data, no motion. Kept for reference.</p>
+    <div class="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <a href="./v1-terminal.html" target="_blank" class="card flex">
+        <div class="w-44 shrink-0 relative overflow-hidden" style="background:#000;">
+          <iframe src="./v1-terminal.html" class="w-[1200px] h-[750px] origin-top-left absolute top-0 left-0" style="transform: scale(0.15);" loading="lazy" tabindex="-1"></iframe>
+        </div>
+        <div class="p-4">
+          <div class="serif text-[18px]">v1 · Terminal</div>
+          <div class="text-[11px] text-white/45 mt-1">Bloomberg-style mono</div>
+        </div>
+      </a>
+      <a href="./v2-cyber.html" target="_blank" class="card flex">
+        <div class="w-44 shrink-0 relative overflow-hidden" style="background:#07061a;">
+          <iframe src="./v2-cyber.html" class="w-[1200px] h-[750px] origin-top-left absolute top-0 left-0" style="transform: scale(0.15);" loading="lazy" tabindex="-1"></iframe>
+        </div>
+        <div class="p-4">
+          <div class="serif text-[18px]">v2 · Cyber</div>
+          <div class="text-[11px] text-white/45 mt-1">Holographic neon</div>
+        </div>
+      </a>
+      <a href="./v3-bento.html" target="_blank" class="card flex">
+        <div class="w-44 shrink-0 relative overflow-hidden" style="background:#f3f1ec;">
+          <iframe src="./v3-bento.html" class="w-[1200px] h-[750px] origin-top-left absolute top-0 left-0" style="transform: scale(0.15);" loading="lazy" tabindex="-1"></iframe>
+        </div>
+        <div class="p-4">
+          <div class="serif text-[18px]">v3 · Bento</div>
+          <div class="text-[11px] text-white/45 mt-1">Editorial pastel</div>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <footer class="mt-12 text-[11px] text-white/30 text-center">
+    All six render the same fabricated snapshot. Production would replace the SVG/canvas with React + recharts + a /api/generators stream.
+  </footer>
+</main>
+
+</body>
+</html>
