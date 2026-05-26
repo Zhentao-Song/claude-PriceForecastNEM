@@ -3,13 +3,15 @@ import {
   Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import type { Constraints, ConstraintRow, Forecast, History } from '../types'
+import type { Constraints, ConstraintRow, Forecast, History, PriceForecast } from '../types'
 import { useT } from '../i18n'
 
 type Props = {
   history: History | null
   loading: boolean
   forecast?: Forecast | null
+  /** P5MIN price forecast with historical error bands (p10/p25/p50/p75/p90). */
+  priceForecast?: PriceForecast | null
   /** ISO timestamp of the latest cleared interval — drives the "now" line. */
   nowTs?: string | null
   /** Binding network/security constraints over the chart window. Drawn as
@@ -31,6 +33,12 @@ type Row = {
   /** Sentinel y-value for the "binding constraint" series — sits just under
    *  the x-axis so the markers form a strip below the price line. */
   binding_marker: number | null
+  /** P5MIN price forecast quantile band values. */
+  pf_p50?: number | null
+  pf_p10?: number | null
+  pf_p90?: number | null
+  pf_band_lo?: number | null  // used for Area fill (p10 as lower)
+  pf_band_hi?: number | null  // used for Area fill (p90 as upper)
 }
 
 const CONSTRAINT_COLOR = '#8e3acc'   // purple — distinct from price (orange) & demand (blue)
@@ -38,7 +46,11 @@ const CONSTRAINT_COLOR = '#8e3acc'   // purple — distinct from price (orange) 
 /** Merge actuals + forecast onto one x-axis. Forecast spans the full window
  *  (past + short future tail) so the dashed line overlays the solid line
  *  throughout — that's how the user reads AEMO's prediction error. */
-function buildRows(history: History, forecast: Forecast | null | undefined): Row[] {
+function buildRows(
+  history: History,
+  forecast: Forecast | null | undefined,
+  priceForecast: PriceForecast | null | undefined,
+): Row[] {
   const map = new Map<string, Row>()
   for (const p of history.series) {
     map.set(p.t, {
@@ -64,6 +76,33 @@ function buildRows(history: History, forecast: Forecast | null | undefined): Row
           forecast_rrp: p.rrp,
           forecast_demand: p.demand,
           binding_marker: null,
+        })
+      }
+    }
+  }
+  if (priceForecast) {
+    for (const p of priceForecast.forecast) {
+      const key = p.interval_datetime
+      const existing = map.get(key)
+      if (existing) {
+        existing.pf_p50 = p.p50
+        existing.pf_p10 = p.p10
+        existing.pf_p90 = p.p90
+        existing.pf_band_lo = p.p10
+        existing.pf_band_hi = p.p90
+      } else {
+        map.set(key, {
+          t: key,
+          rrp: null,
+          demand: null,
+          forecast_rrp: null,
+          forecast_demand: null,
+          binding_marker: null,
+          pf_p50: p.p50,
+          pf_p10: p.p10,
+          pf_p90: p.p90,
+          pf_band_lo: p.p10,
+          pf_band_hi: p.p90,
         })
       }
     }
@@ -96,7 +135,7 @@ const APC_USD_PER_MWH = 600
 const PRICE_COLOR = '#ff9500'
 const DEMAND_COLOR = '#0a84ff'
 
-export function PriceChart({ history, loading, forecast, nowTs, constraints }: Props) {
+export function PriceChart({ history, loading, forecast, priceForecast, nowTs, constraints }: Props) {
   const { t, lang } = useT()
   const constraintIndex = useMemo(
     () => indexConstraintsByInterval(constraints),
@@ -113,8 +152,9 @@ export function PriceChart({ history, loading, forecast, nowTs, constraints }: P
       </div>
     )
   }
-  const rows = buildRows(history, forecast)
+  const rows = buildRows(history, forecast, priceForecast)
   const hasForecast = !!forecast && forecast.series.length > 0
+  const hasPriceForecast = !!priceForecast && priceForecast.forecast.length > 0
   const hasDemand = rows.some((r) => r.demand != null || r.forecast_demand != null)
   // Only render the APC line if its scale is within sight — otherwise it
   // crushes the y-axis when prices are flat at $80.
@@ -148,6 +188,10 @@ export function PriceChart({ history, loading, forecast, nowTs, constraints }: P
           <linearGradient id="orangeFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={PRICE_COLOR} stopOpacity={0.18} />
             <stop offset="100%" stopColor={PRICE_COLOR} stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="pfBandFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#8e3acc" stopOpacity={0.12} />
+            <stop offset="100%" stopColor="#8e3acc" stopOpacity={0.04} />
           </linearGradient>
         </defs>
         <CartesianGrid stroke="#e8e8ed" vertical={false} />
@@ -211,10 +255,13 @@ export function PriceChart({ history, loading, forecast, nowTs, constraints }: P
               const extra = list.length > 3 ? ` +${list.length - 3}` : ''
               return [`${top}${extra}`, t('chart.binding')]
             }
+            // Hide internal band series from tooltip
+            if (name === 'pf_band_hi' || name === 'pf_band_lo') return null as any
             if (v == null) return ['—', name]
             if (name === 'demand') return [`${v.toFixed(0)} MW`, t('chart.demand')]
             if (name === 'forecast_demand') return [`${v.toFixed(0)} MW`, t('chart.forecastDemand')]
             if (name === 'forecast_rrp') return [`$${v.toFixed(2)} /MWh`, t('chart.forecast')]
+            if (name === 'pf_p50') return [`$${v.toFixed(2)} /MWh`, t('fc.title')]
             return [`$${v.toFixed(2)} /MWh`, t('chart.rrp')]
           }}
         />
@@ -223,10 +270,12 @@ export function PriceChart({ history, loading, forecast, nowTs, constraints }: P
           iconType="plainline"
           iconSize={14}
           formatter={(value: string) => {
+            if (value === 'pf_band_hi' || value === 'pf_band_lo') return null as any
             const key = value === 'forecast_rrp' ? 'chart.forecast'
               : value === 'demand' ? 'chart.demand'
               : value === 'forecast_demand' ? 'chart.forecastDemand'
               : value === 'binding_marker' ? 'chart.binding'
+              : value === 'pf_p50' ? 'fc.title'
               : 'chart.rrp'
             return <span style={{ color: '#86868b' }}>{t(key)}</span>
           }}
@@ -262,6 +311,53 @@ export function PriceChart({ history, loading, forecast, nowTs, constraints }: P
               fill: '#86868b',
               fontSize: 10,
             }}
+          />
+        )}
+        {/* --- P5MIN price forecast band (p10–p90 shaded, p50 dotted) ---
+            Drawn behind the price series so it acts as an uncertainty halo
+            rather than competing with the actual price line. */}
+        {hasPriceForecast && (
+          <Area
+            yAxisId="price"
+            type="monotone"
+            dataKey="pf_band_hi"
+            name="pf_band_hi"
+            stroke="none"
+            fill="url(#pfBandFill)"
+            fillOpacity={1}
+            isAnimationActive={false}
+            connectNulls={false}
+            legendType="none"
+            tooltipType="none"
+          />
+        )}
+        {hasPriceForecast && (
+          <Area
+            yAxisId="price"
+            type="monotone"
+            dataKey="pf_band_lo"
+            name="pf_band_lo"
+            stroke="none"
+            fill="#ffffff"
+            fillOpacity={1}
+            isAnimationActive={false}
+            connectNulls={false}
+            legendType="none"
+            tooltipType="none"
+          />
+        )}
+        {hasPriceForecast && (
+          <Line
+            yAxisId="price"
+            type="monotone"
+            dataKey="pf_p50"
+            name="pf_p50"
+            stroke="#8e3acc"
+            strokeWidth={1.5}
+            strokeDasharray="3 3"
+            dot={false}
+            isAnimationActive={false}
+            connectNulls={false}
           />
         )}
         {/* --- Demand (drawn behind price so the orange Area stays

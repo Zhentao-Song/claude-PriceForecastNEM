@@ -747,7 +747,32 @@ function BacktestPanel({
             </div>
           </div>
         )}
-        {f && (
+        {e && e.annual_fcas_revenue_aud != null ? (
+          <div className="bg-surface rounded-md p-2 ring-1 ring-hairlineSoft">
+            <div className="text-muted uppercase tracking-wider mb-1 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-sm bg-positive" />
+              {t('bc.bt.fcas')}
+            </div>
+            <div className="text-[14px] font-semibold tabular-nums text-ink leading-tight">
+              +{fmtM(e.annual_fcas_revenue_aud)}
+            </div>
+            {e.mean_idle_intervals_per_day != null && (
+              <div className="text-[10px] text-muted mt-0.5 tabular-nums">
+                {e.mean_idle_intervals_per_day.toFixed(0)} avg idle intervals/day
+              </div>
+            )}
+            {e.mean_fcas_per_mwh_yr != null && (
+              <div className="text-[10px] text-muted tabular-nums">
+                raw ${(e.mean_fcas_per_mwh_yr / 1000).toFixed(1)}k/MW/yr
+              </div>
+            )}
+            {e.fcas_capture != null && (
+              <div className="text-[10px] text-muted tabular-nums">
+                capture {(e.fcas_capture * 100).toFixed(0)}%
+              </div>
+            )}
+          </div>
+        ) : f ? (
           <div className="bg-surface rounded-md p-2 ring-1 ring-hairlineSoft">
             <div className="text-muted uppercase tracking-wider mb-1 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-sm bg-positive" />
@@ -762,17 +787,19 @@ function BacktestPanel({
             <div className="text-[10px] text-muted tabular-nums">
               util {(f.utilisation * 100).toFixed(0)}% · raw ${(f.raw_per_mw_year / 1000).toFixed(0)}k
             </div>
-            {Object.keys(f.by_market_per_mw_year).length > 0 && (() => {
-              const sorted = Object.entries(f.by_market_per_mw_year).sort((a, b) => b[1] - a[1]).slice(0, 2)
-              return (
-                <div className="text-[10px] text-muted tabular-nums truncate">
-                  top: {sorted.map(([k, v]) => `${k.replace(/SEC$|MIN$|REG$/, m => m === 'REG' ? 'reg' : m === 'MIN' ? 'min' : 's')} $${(v / 1000).toFixed(0)}k`).join(' · ')}
-                </div>
-              )
-            })()}
           </div>
-        )}
+        ) : null}
       </div>
+
+      {/* Combined revenue total from integrated FCAS */}
+      {e && e.annual_combined_revenue_aud != null && (
+        <div className="mb-2.5 px-2 py-1.5 rounded-md bg-surfaceAlt/60 ring-1 ring-hairlineSoft flex items-baseline justify-between text-[10px]">
+          <span className="text-muted uppercase tracking-wider">{t('bc.bt.combined')}</span>
+          <span className="text-[14px] font-semibold tabular-nums text-positive leading-tight">
+            ={fmtM(e.annual_combined_revenue_aud)}/yr
+          </span>
+        </div>
+      )}
 
       {/* Dynamic dispatch controls + cycle histogram */}
       {e && (

@@ -893,7 +893,11 @@ const DICT: Record<string, { en: string; zh: string }> = {
   'bc.bt.spec':          { en: '{0} / {1} · {2} RTE · {3}×/day',           zh: '{0} / {1} · RTE {2} · 每天 {3} 次循环' },
   'bc.bt.window':        { en: 'Lookback',                                  zh: '回测窗口' },
   'bc.bt.energy':        { en: 'Energy arbitrage',                         zh: '能量套利' },
-  'bc.bt.fcas':          { en: 'FCAS',                                      zh: 'FCAS' },
+  'bc.bt.fcas':          { en: 'FCAS (idle)',                               zh: 'FCAS (空闲)' },
+  'bc.bt.combined':      { en: 'Combined',                                  zh: '合计' },
+  // Price forecast
+  'fc.title':            { en: 'P5MIN Forecast',                            zh: 'P5MIN预测' },
+  'fc.band':             { en: 'Uncertainty band (±1σ)',                    zh: '不确定范围 (±1σ)' },
   'bc.bt.impliedSpread': { en: 'Implied spread',                           zh: '隐含价差' },
   'bc.bt.impliedPerMw':  { en: 'Implied per-MW',                           zh: '隐含 per-MW' },
   'bc.bt.capture':       { en: 'Capture',                                  zh: '捕获率' },

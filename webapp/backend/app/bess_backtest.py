@@ -120,8 +120,11 @@ def run_energy_backtest(
     aux_load_pct: float = 1.5,
     deg_cost_per_mwh: float = 35.0,
     max_cycles_per_day: float = 2.0,
+    fcas_capture: float = 0.70,
 ) -> dict | None:
     """Backtest a BESS doing energy arbitrage with per-day optimal cycling.
+
+    Also integrates FCAS revenue from idle (non-energy) intervals.
 
     Returns None when not enough RRP history is available.
     """
@@ -138,7 +141,12 @@ def run_energy_backtest(
     with locked_conn() as con:
         rows = con.execute(
             """
-            SELECT settlementdate, rrp
+            SELECT settlementdate, rrp,
+                COALESCE(raise6sec_rrp,0) + COALESCE(raise60sec_rrp,0) +
+                COALESCE(raise5min_rrp,0) + COALESCE(raisereg_rrp,0) + COALESCE(raise1sec_rrp,0) +
+                COALESCE(lower6sec_rrp,0) + COALESCE(lower60sec_rrp,0) +
+                COALESCE(lower5min_rrp,0) + COALESCE(lowerreg_rrp,0) + COALESCE(lower1sec_rrp,0)
+                AS total_fcas_rrp
             FROM nem_dispatch_price
             WHERE regionid = ? AND settlementdate >= ? AND rrp IS NOT NULL
             """,
@@ -147,10 +155,10 @@ def run_energy_backtest(
     if not rows:
         return None
 
-    # Group by date
-    by_day: dict[str, list[float]] = defaultdict(list)
-    for ts, rrp in rows:
-        by_day[str(ts)[:10]].append(float(rrp))
+    # Group by date — pairs of (rrp, fcas_total)
+    by_day: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for ts, rrp, fcas_total in rows:
+        by_day[str(ts)[:10]].append((float(rrp), float(fcas_total or 0)))
 
     # Per-day backtest
     daily_results: list[dict] = []
@@ -178,11 +186,20 @@ def run_energy_backtest(
     sum_cycles_per_day = 0.0   # accumulated implied cycles (for mean)
     cycle_hist: dict[str, int] = defaultdict(int)  # "0.5" → n_days bucket
 
-    for day, prices in by_day.items():
-        if len(prices) < 24:
+    # FCAS accumulators
+    sum_fcas_revenue = 0.0
+    sum_fcas_raw_per_mw_yr = 0.0  # annualized market FCAS $/MW/yr (raw, before capture)
+    n_idle_intervals_total = 0
+    n_active_days_for_fcas = 0
+
+    for day, day_data in by_day.items():
+        if len(day_data) < 24:
             continue
 
-        sorted_p = sorted(prices)
+        # Sort by RRP, keep FCAS values paired
+        sorted_data = sorted(day_data, key=lambda x: x[0])
+        sorted_p = [x[0] for x in sorted_data]
+        sorted_f = [x[1] for x in sorted_data]
         n = len(sorted_p)
 
         discharge_intervals, charge_intervals = _optimal_dispatch(
@@ -195,12 +212,19 @@ def run_energy_backtest(
             n_idle_days += 1
             # Still counts as an active (observed) day for annualisation
             n_active_days += 1
+            # All intervals are idle for FCAS
+            fcas_rev = sum(sorted_f) * mwh_per_interval * mlf * fcas_capture
+            sum_fcas_revenue += fcas_rev
+            sum_fcas_raw_per_mw_yr += sum(sorted_f) * (5 / 60)
+            n_idle_intervals_total += n
+            n_active_days_for_fcas += 1
             daily_results.append({
                 "date": day,
                 "revenue_aud": 0,
                 "discharge_mwh": 0.0,
                 "implied_spread": 0.0,
                 "cycles": 0.0,
+                "fcas_revenue_aud": round(fcas_rev, 0),
             })
             continue
 
@@ -233,6 +257,16 @@ def run_energy_backtest(
 
         # 4) AFTER CAPTURE (real autobidder vs perfect foresight)
         net_rev = after_mlf_aux * capture_efficiency
+
+        # ── FCAS from idle (non-energy) intervals ─────────────────────────
+        # Middle intervals [charge_k : n - discharge_k] not used for energy
+        idle_fcas_slice = sorted_f[charge_intervals : n - discharge_intervals]
+        n_idle_today = len(idle_fcas_slice)
+        fcas_rev = sum(idle_fcas_slice) * mwh_per_interval * mlf * fcas_capture
+        sum_fcas_revenue += fcas_rev
+        sum_fcas_raw_per_mw_yr += sum(idle_fcas_slice) * (5 / 60)
+        n_idle_intervals_total += n_idle_today
+        n_active_days_for_fcas += 1
 
         # ── Accumulators ─────────────────────────────────────────────────
         sum_gross_revenue  += raw_rev
@@ -267,6 +301,7 @@ def run_energy_backtest(
             "discharge_mwh": round(discharge_mwh, 1),
             "implied_spread": round(spread, 1),
             "cycles":        round(cycles_today, 2),
+            "fcas_revenue_aud": round(fcas_rev, 0),
         })
 
     if not daily_results:
@@ -274,10 +309,18 @@ def run_energy_backtest(
 
     # Annualise: scale by 365 / n_active_days
     total_rev          = sum(d["revenue_aud"] for d in daily_results)
+    total_fcas_rev     = sum(d["fcas_revenue_aud"] for d in daily_results)
     total_discharge_mwh = sum(d["discharge_mwh"] for d in daily_results)
     annual_rev         = total_rev * 365 / n_active_days
+    annual_fcas_rev    = total_fcas_rev * 365 / n_active_days
     annual_discharge_mwh = total_discharge_mwh * 365 / n_active_days
     implied_spread     = annual_rev / annual_discharge_mwh if annual_discharge_mwh > 0 else 0
+
+    # Mean FCAS raw $/MW/yr (annualised, before capture)
+    mean_fcas_per_mwh_yr = (sum_fcas_raw_per_mw_yr * 365 / max(n_active_days_for_fcas, 1)) if n_active_days_for_fcas > 0 else 0
+
+    # Mean idle intervals per day (for UI note)
+    mean_idle_intervals = n_idle_intervals_total / max(n_active_days_for_fcas, 1) if n_active_days_for_fcas > 0 else 0
 
     # Mean implied cycles/day (excluding idle days to avoid deflating)
     n_dispatching = n_active_days - n_idle_days
@@ -301,22 +344,28 @@ def run_energy_backtest(
     ]
 
     return {
-        "annual_revenue_aud":       round(annual_rev, 0),
-        "implied_spread_per_mwh":   round(implied_spread, 1),
-        "annual_discharge_mwh":     round(annual_discharge_mwh, 0),
-        "capture_efficiency":       capture_efficiency,
-        "deg_cost_per_mwh":         deg_cost_per_mwh,
-        "mean_cycles_per_day":      round(mean_cycles, 2),
-        "max_cycles_per_day":       max_cycles_per_day,
-        "n_days_backtested":        n_active_days,
-        "n_days_positive":          n_positive_days,
-        "n_days_idle":              n_idle_days,
-        "cycle_histogram":          dict(sorted(cycle_hist.items())),
-        "best_day":                 best_day,
-        "worst_day":                worst_day,
-        "monthly":                  monthly,
-        "mlf_applied":              mlf,
-        "haircuts":                 haircuts,
+        "annual_revenue_aud":           round(annual_rev, 0),
+        "annual_fcas_revenue_aud":      round(annual_fcas_rev, 0),
+        "annual_combined_revenue_aud":  round(annual_rev + annual_fcas_rev, 0),
+        "mean_fcas_per_mwh_yr":         round(mean_fcas_per_mwh_yr, 0),
+        "mean_idle_intervals_per_day":  round(mean_idle_intervals, 1),
+        "implied_spread_per_mwh":       round(implied_spread, 1),
+        "annual_discharge_mwh":         round(annual_discharge_mwh, 0),
+        "capture_efficiency":           capture_efficiency,
+        "fcas_capture":                 fcas_capture,
+        "deg_cost_per_mwh":             deg_cost_per_mwh,
+        "mean_cycles_per_day":          round(mean_cycles, 2),
+        "max_cycles_per_day":           max_cycles_per_day,
+        "n_days_backtested":            n_active_days,
+        "n_days_positive":              n_positive_days,
+        "n_days_idle":                  n_idle_days,
+        "cycle_histogram":              dict(sorted(cycle_hist.items())),
+        "best_day":                     best_day,
+        "worst_day":                    worst_day,
+        "monthly":                      monthly,
+        "mlf_applied":                  mlf,
+        "haircuts":                     haircuts,
+        "daily_results":                daily_results,
     }
 
 
@@ -416,10 +465,16 @@ def run_full_backtest(
     lookback_days: int = 365,
     capture_efficiency: float = 0.80,
     fcas_utilisation: float = 0.35,
+    fcas_capture: float = 0.70,
     deg_cost_per_mwh: float = 35.0,
     max_cycles_per_day: float = 2.0,
 ) -> dict:
-    """Energy + FCAS backtest combined into one response."""
+    """Energy + FCAS backtest combined into one response.
+
+    The integrated FCAS (from idle intervals in run_energy_backtest) is the
+    primary FCAS result. The legacy run_fcas_backtest is kept for backward
+    compatibility but annual_total_revenue_aud uses the integrated result.
+    """
     energy = run_energy_backtest(
         region, power_mw, duration_h, rte_pct,
         lookback_days=lookback_days,
@@ -427,12 +482,15 @@ def run_full_backtest(
         mlf=mlf, aux_load_pct=aux_load_pct,
         deg_cost_per_mwh=deg_cost_per_mwh,
         max_cycles_per_day=max_cycles_per_day,
+        fcas_capture=fcas_capture,
     )
     fcas = run_fcas_backtest(
         region, power_mw,
         lookback_days=lookback_days,
         utilisation=fcas_utilisation,
     )
+    # Use integrated FCAS from energy result as the primary combined total
+    integrated_fcas_rev = energy["annual_fcas_revenue_aud"] if energy else 0
     return {
         "region": region,
         "spec": {
@@ -445,9 +503,9 @@ def run_full_backtest(
         "lookback_days": lookback_days,
         "capture_efficiency": capture_efficiency,
         "fcas_utilisation": fcas_utilisation,
+        "fcas_capture": fcas_capture,
         "energy": energy,
         "fcas": fcas,
         "annual_total_revenue_aud": round(
-            (energy["annual_revenue_aud"] if energy else 0) +
-            (fcas["annual_revenue_aud"] if fcas else 0), 0),
+            (energy["annual_combined_revenue_aud"] if energy else 0), 0),
     }

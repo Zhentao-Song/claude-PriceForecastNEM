@@ -845,9 +845,14 @@ export type BessBacktestHaircuts = {
 
 export type BessBacktestEnergy = {
   annual_revenue_aud: number
+  annual_fcas_revenue_aud: number
+  annual_combined_revenue_aud: number
+  mean_fcas_per_mwh_yr?: number
+  mean_idle_intervals_per_day?: number
   implied_spread_per_mwh: number
   annual_discharge_mwh: number
   capture_efficiency: number
+  fcas_capture?: number
   /** Economically-optimal mean cycles/day across the backtest window. */
   mean_cycles_per_day: number
   max_cycles_per_day: number
@@ -863,6 +868,25 @@ export type BessBacktestEnergy = {
   monthly: BessBacktestEnergyMonth[]
   mlf_applied: number
   haircuts: BessBacktestHaircuts
+}
+
+export type PriceForecastPoint = {
+  interval_datetime: string
+  p10: number
+  p25: number
+  p50: number
+  p75: number
+  p90: number
+  source?: string
+}
+
+export type PriceForecast = {
+  region: string
+  generated_at: string
+  forecast: PriceForecastPoint[]
+  error_std: number
+  mean_bias?: number
+  n_historical_errors: number
 }
 
 export type BessBacktestFcas = {

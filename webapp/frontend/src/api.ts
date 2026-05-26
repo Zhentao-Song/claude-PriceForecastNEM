@@ -3,7 +3,7 @@ import type {
   BessDefaultsResponse, BessModelResponse, BessRegion,
   Bid, BidIn, BessState, BidStack, Constraints, FCASMatrix, Fill, Forecast,
   GeneratorsSnapshot, GridSnapshot, Heatmap, History, MarketCatalog,
-  NextIntervals, Snapshot, Timeline,
+  NextIntervals, PriceForecast, Snapshot, Timeline,
   VPPBid, VPPBidIn, VPPCompliance, VPPCustomerDemandCharge, VPPEnvelope,
   VPPFill, VPPMarketCatalog, VPPResourceHistory, VPPResourcePnlResponse,
   VPPRevenue, VPPState, VPPSuggestionsResponse, VPPTradingDayIn,
@@ -340,6 +340,12 @@ export async function startBessBackfill(lookbackDays = 400): Promise<{
   const data = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error((data as any)?.detail || `bess backfill ${r.status}`)
   return data
+}
+
+export async function fetchPriceForecast(region: string): Promise<PriceForecast> {
+  const r = await fetch(`${BASE}/price-forecast?region=${encodeURIComponent(region)}`)
+  if (!r.ok) throw new Error(`price-forecast ${r.status}`)
+  return r.json()
 }
 
 export async function fetchBessBackfillStatus(): Promise<{

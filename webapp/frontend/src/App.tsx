@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   fetchConstraints, fetchFCAS, fetchForecast, fetchGenerators, fetchGrid,
-  fetchHeatmap, fetchHistory, fetchSnapshot, openSnapshotStream,
+  fetchHeatmap, fetchHistory, fetchPriceForecast, fetchSnapshot, openSnapshotStream,
 } from './api'
 import type {
   Constraints, FCASMatrix, Forecast, GeneratorsSnapshot, GridSnapshot, Heatmap,
-  History, Snapshot,
+  History, PriceForecast, Snapshot,
 } from './types'
 import { Header } from './components/Header'
 import { RegionTile, regionTilePropsForNEM, regionTilePropsForWEM } from './components/RegionTile'
@@ -28,6 +28,7 @@ export default function App() {
   const [selected, setSelected] = useState<string>('NSW1')
   const [history, setHistory] = useState<History | null>(null)
   const [forecast, setForecast] = useState<Forecast | null>(null)
+  const [priceForecast, setPriceForecast] = useState<PriceForecast | null>(null)
   const [constraints, setConstraints] = useState<Constraints | null>(null)
   const [fcas, setFcas] = useState<FCASMatrix | null>(null)
   const [grid, setGrid] = useState<GridSnapshot | null>(null)
@@ -106,6 +107,18 @@ export default function App() {
       .then(setForecast)
       .catch(() => setForecast(null))
   }, [selected, hours, snap?.generated_at])
+
+  // P5MIN price forecast with error bands — fetched whenever selected region
+  // changes (or snap updates). Only for NEM regions.
+  useEffect(() => {
+    if (selected === 'WEM') {
+      setPriceForecast(null)
+      return
+    }
+    fetchPriceForecast(selected)
+      .then(setPriceForecast)
+      .catch(() => setPriceForecast(null))
+  }, [selected, snap?.generated_at])
 
   const nemMap = useMemo(() => {
     const m = new Map<string, any>()
@@ -268,6 +281,7 @@ export default function App() {
             history={history}
             loading={historyLoading}
             forecast={forecast}
+            priceForecast={priceForecast}
             nowTs={nemMap.get(selected)?.settlementdate ?? null}
             constraints={constraints}
           />

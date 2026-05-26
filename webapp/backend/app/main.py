@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import scheduler
 from .db import get_conn
-from .routes import bess_calc, bids, grid, paper, prices, stream, vpp
+from .routes import bess_calc, bids, grid, paper, price_forecast, prices, stream, vpp
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +52,7 @@ app.include_router(paper.router)
 app.include_router(bids.router)
 app.include_router(vpp.router)
 app.include_router(bess_calc.router)
+app.include_router(price_forecast.router)
 
 
 # ── Serve bundled React frontend (production only) ────────────────────────────
