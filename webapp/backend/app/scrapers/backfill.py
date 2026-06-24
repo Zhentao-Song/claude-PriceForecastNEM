@@ -204,16 +204,14 @@ MMSDM_BASE_URL = "https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM
 def _mmsdm_price_url(year: int, month: int) -> str:
     """Build the MMSDM monthly DISPATCHPRICE archive URL.
 
-    The file name contains literal '#' characters. The server expects them
-    URL-encoded as %23 in the path, but httpx normalises %23 → fragment
-    separator and truncates the URL. Passing %2523 (double-encoded) causes
-    httpx to send %2523 on the wire, which the NEMWEB server then decodes
-    once to %23, which it further decodes to '#' when resolving the filename.
-    Verified empirically: %2523 → HTTP 200, %23 → HTTP 400.
+    The file name contains literal '#' characters, URL-encoded as %23 in the
+    path. Current httpx (0.28.x) sends a literal %23 correctly, so single
+    encoding is right. (An older httpx mangled %23 → fragment, which a previous
+    %2523 double-encode worked around; that double-encode now 404s — verified
+    empirically %23 → HTTP 200, %2523 → HTTP 404 on 2026-06.)
     """
     ym = f"{year}{month:02d}"
-    # %2523 = double-encoded '#': httpx sends %2523, server sees %23 → '#'
-    fname = f"PUBLIC_ARCHIVE%2523DISPATCHPRICE%2523FILE01%2523{ym}010000.zip"
+    fname = f"PUBLIC_ARCHIVE%23DISPATCHPRICE%23FILE01%23{ym}010000.zip"
     return (
         f"{MMSDM_BASE_URL}/{year}/MMSDM_{year}_{month:02d}/"
         f"MMSDM_Historical_Data_SQLLoader/DATA/{fname}"
