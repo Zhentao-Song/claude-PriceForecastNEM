@@ -27,7 +27,7 @@ import json
 import logging
 from datetime import datetime
 
-from .db import locked_conn
+from .db import write_conn
 from .vpp_baseline import compute_baseline_kw, wdr_revenue
 
 log = logging.getLogger("vpp.settle")
@@ -295,7 +295,7 @@ def settle_pending(*, max_rows: int = 500) -> dict:
     out = {"checked": 0, "settled": 0, "skipped_no_price": 0, "revenue": 0.0,
            "by_market": {}}
 
-    with locked_conn() as con:
+    with write_conn() as con:
         rows = con.execute(
             """
             SELECT bid_id, portfolio_id, target_settlementdate, market, direction,
@@ -325,7 +325,7 @@ def settle_pending(*, max_rows: int = 500) -> dict:
             log.warning("vpp_bid %s: malformed bands_json", bid_id)
             continue
 
-        with locked_conn() as con:
+        with write_conn() as con:
             region = _portfolio_region(con, portfolio_id)
             rrp = _lookup_cleared_price(con, target_str, region, market)
             if rrp is None:

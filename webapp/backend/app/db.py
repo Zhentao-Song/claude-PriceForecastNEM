@@ -8,31 +8,90 @@ from contextlib import contextmanager
 
 from .config import DB_PATH
 
-_lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
+# Per-thread SQLite connections. The previous design shared ONE connection
+# behind a global lock, which serialised *reads* behind *writes*: a long writer
+# (the bids ingest) would hold the lock and stall every page read. With WAL +
+# one connection per thread, readers run lock-free and concurrently with a
+# single writer; writers from different threads serialise via SQLite's own
+# write lock, and busy_timeout makes them wait politely instead of erroring.
+# Crucially no Python-level lock is held across a DB call, so a slow write can
+# never block a read.
+_local = threading.local()
+_DB_FILE = str(DB_PATH).replace(".duckdb", ".sqlite3")
+_schema_lock = threading.Lock()
+_schema_ready = False
+
+
+def _configure(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+
+
+def _ensure_schema() -> None:
+    global _schema_ready
+    if _schema_ready:
+        return
+    with _schema_lock:
+        if _schema_ready:
+            return
+        conn = sqlite3.connect(_DB_FILE, check_same_thread=False,
+                               detect_types=sqlite3.PARSE_DECLTYPES,
+                               isolation_level=None)
+        _configure(conn)
+        _init_schema(conn)
+        conn.close()
+        _schema_ready = True
 
 
 def get_conn() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
-        _conn = sqlite3.connect(
-            str(DB_PATH).replace(".duckdb", ".sqlite3"),
-            check_same_thread=False,
-            detect_types=sqlite3.PARSE_DECLTYPES,
-            isolation_level=None,  # autocommit; we manage txns explicitly
-        )
-        _conn.execute("PRAGMA journal_mode=WAL;")
-        _conn.execute("PRAGMA synchronous=NORMAL;")
-        _conn.execute("PRAGMA foreign_keys=ON;")
-        _init_schema(_conn)
-    return _conn
+    """A SQLite connection bound to the calling thread (WAL, autocommit)."""
+    _ensure_schema()
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(_DB_FILE, check_same_thread=False,
+                               detect_types=sqlite3.PARSE_DECLTYPES,
+                               isolation_level=None)
+        _configure(conn)
+        _local.conn = conn
+    return conn
+
+
+def new_connection() -> sqlite3.Connection:
+    """A fresh standalone connection (e.g. for a dedicated background writer
+    such as the bids ingest), configured like the per-thread ones."""
+    conn = sqlite3.connect(_DB_FILE, check_same_thread=False,
+                           detect_types=sqlite3.PARSE_DECLTYPES,
+                           isolation_level=None)
+    _configure(conn)
+    return conn
 
 
 @contextmanager
 def locked_conn():
-    """SQLite connections aren't safe for concurrent writes — serialise."""
-    with _lock:
-        yield get_conn()
+    """READ path: a per-thread connection, lock-free. WAL lets these run
+    concurrently with the single writer and with each other. Use for queries;
+    writes should go through write_conn() so there is only ever one writer."""
+    yield get_conn()
+
+
+_write_rlock = threading.RLock()
+_writer_conn: sqlite3.Connection | None = None
+
+
+@contextmanager
+def write_conn():
+    """WRITE path: the ONE serialised writer connection. Every write goes
+    through here, so SQLite only ever sees a single writer — no WAL write-lock
+    collisions, no busy_timeout stalls, and checkpoints stay clean. Reads
+    (locked_conn) are on separate per-thread connections and never block on it.
+    RLock allows safe re-entry when one write helper calls another."""
+    global _writer_conn
+    with _write_rlock:
+        if _writer_conn is None:
+            _writer_conn = new_connection()
+        yield _writer_conn
 
 
 def _init_schema(con: sqlite3.Connection) -> None:
@@ -139,6 +198,25 @@ def _init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_predispatch_run
             ON nem_predispatch_price(source, run_datetime DESC);
 
+        -- ===== AEMO ST PASA — Short-Term Projected Assessment of System Adequacy
+        -- Published hourly on NEMWeb (Short_Term_PASA_Reports). Covers the next
+        -- 14 days at 30-min interval resolution. Keyed by (interval, region);
+        -- replaced on each fresh run so we always hold the latest published values.
+        CREATE TABLE IF NOT EXISTS nem_st_pasa (
+            interval_datetime TEXT NOT NULL,     -- NEM time, end of 30-min interval
+            regionid          TEXT NOT NULL,
+            demand10          REAL,              -- 10th percentile demand forecast (MW)
+            demand50          REAL,              -- 50th percentile (median)
+            demand90          REAL,              -- 90th percentile
+            available_generation REAL,           -- total available generation (MW)
+            lrc               REAL,              -- Load Reliability Criteria (MW)
+            reservecondition  INTEGER,           -- 0=OK 1=LOR1 2=LOR2 3=LOR3
+            run_datetime      TEXT,              -- when AEMO produced this run
+            PRIMARY KEY (interval_datetime, regionid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_st_pasa_region
+            ON nem_st_pasa(regionid, interval_datetime);
+
         -- ===== AEMO BIDDAYOFFER (per NER 3.8.6) ============================
         -- The 10 price bands a participant submits for ONE (DUID, trading day,
         -- bid type) tuple. Prices LOCK at 12:30 day before — they cannot be
@@ -202,12 +280,101 @@ def _init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_bidper_reason
             ON nem_bidper_offer(rebid_reason, interval_datetime DESC);
 
+        -- ===== AEMO Rooftop PV (satellite actual) ===========================
+        -- Published ~20 min after each 30-min interval. Each file covers one
+        -- 30-min slot with one row per NEM region. Keyed by (interval, region);
+        -- upserted so that corrected estimates replace earlier estimates.
+        CREATE TABLE IF NOT EXISTS nem_rooftop_pv (
+            settlementdate TIMESTAMP NOT NULL,  -- NEM time, end of 30-min interval
+            regionid TEXT NOT NULL,
+            power_mw REAL,                      -- aggregate rooftop PV output (MW)
+            PRIMARY KEY (settlementdate, regionid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rooftop_pv_region_time
+            ON nem_rooftop_pv(regionid, settlementdate DESC);
+
         CREATE TABLE IF NOT EXISTS scraper_state (
             source TEXT PRIMARY KEY,
             last_file TEXT,
             last_run TIMESTAMP,
             last_error TEXT
         );
+
+        -- ===== AEMO Market Notices ========================================
+        -- LOR warnings, CPT/APC events, interventions, reclassifications.
+        -- Rolling window (pruned to ~500 rows by the scraper).
+        CREATE TABLE IF NOT EXISTS nem_market_notice (
+            notice_id INTEGER PRIMARY KEY,
+            notice_type TEXT,
+            type_description TEXT,
+            creation_date TEXT,      -- 'YYYY-MM-DD HH:MM:SS' NEM time
+            external_ref TEXT,
+            reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_market_notice_created
+            ON nem_market_notice(creation_date DESC);
+
+        -- ===== Australian energy-market news (RSS aggregation) ============
+        -- Pulled from public RSS feeds (RenewEconomy, pv-magazine, Energy
+        -- Magazine, The Driven). Keyed by article URL; pruned to a rolling
+        -- window by the scraper. Always links back to the original source.
+        CREATE TABLE IF NOT EXISTS nem_news (
+            url TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            source TEXT NOT NULL,        -- feed display name
+            author TEXT,
+            published_at TEXT,           -- ISO8601
+            summary TEXT,                -- plain-text excerpt
+            image_url TEXT,
+            categories TEXT,             -- JSON array of tag strings
+            fetched_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_news_published
+            ON nem_news(published_at DESC);
+
+        -- ===== AEMO facility registry (MMSDM PARTICIPANT_REGISTRATION) ====
+        -- Authoritative per-DUID metadata joined from DUDETAILSUMMARY /
+        -- DUDETAIL / DUALLOC / GENUNITS / STATION archive tables. Refreshed
+        -- weekly by scrapers/facilities.py. Complements the curated
+        -- static/generators.py list (which carries lat/lon for the map).
+        CREATE TABLE IF NOT EXISTS nem_facility_registry (
+            duid TEXT PRIMARY KEY,
+            station TEXT,
+            region TEXT NOT NULL,
+            fuel TEXT,               -- mapped to our Fuel enum; NULL = unmapped
+            capacity_mw REAL,
+            dispatch_type TEXT,      -- GENERATOR | LOAD
+            schedule_type TEXT,      -- SCHEDULED | SEMI-SCHEDULED | NON-SCHEDULED
+            tlf REAL,                -- transmission loss factor (= FY MLF)
+            co2e_source TEXT,        -- raw AEMO CO2E_ENERGY_SOURCE string
+            emissions_factor REAL,   -- tCO2e/MWh
+            source_month TEXT,       -- archive month, e.g. '2026-04'
+            updated_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_facility_region
+            ON nem_facility_registry(region, fuel);
+
+        -- ===== AEMO Marginal Loss Factors (MLF) ===========================
+        -- Per-DUID MLF values from AEMO's annual Loss Factor Report.
+        -- Used in NEM settlement: GEN revenue = RRP × MWh × MLF;
+        -- LOAD cost = RRP × MWh / MLF; FCAS is unaffected by MLF.
+        -- financial_year e.g. '2025-26'. Updated once per year (Feb/Mar).
+        CREATE TABLE IF NOT EXISTS nem_mlf (
+            duid TEXT NOT NULL,
+            financial_year TEXT NOT NULL,
+            station_name TEXT,
+            region TEXT NOT NULL,
+            fuel_type TEXT,      -- 'coal', 'gas', 'hydro', 'wind', 'solar', 'battery'
+            capacity_mw REAL,
+            mlf REAL NOT NULL,   -- marginal loss factor (1.0 = no losses)
+            lat REAL,            -- approximate location for heatmap
+            lon REAL,
+            PRIMARY KEY (duid, financial_year)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mlf_region
+            ON nem_mlf(region, mlf DESC);
+        CREATE INDEX IF NOT EXISTS idx_mlf_fy
+            ON nem_mlf(financial_year);
 
         CREATE INDEX IF NOT EXISTS idx_price_region_time
             ON nem_dispatch_price(regionid, settlementdate DESC);
@@ -643,6 +810,10 @@ def _init_schema(con: sqlite3.Connection) -> None:
         ("low_breakpoint_mw",           "ALTER TABLE vpp_bid ADD COLUMN low_breakpoint_mw REAL"),
         ("high_breakpoint_mw",          "ALTER TABLE vpp_bid ADD COLUMN high_breakpoint_mw REAL"),
         ("trading_day_batch_id",        "ALTER TABLE vpp_bid ADD COLUMN trading_day_batch_id INTEGER"),
+        # FCAS co-optimisation trapezium stored as JSON on paper_bid rows
+        # submitted via the FCAS bid panel. NULL for ENERGY bids and legacy
+        # FCAS bids submitted before this column existed.
+        ("fcas_trapezium_json",         "ALTER TABLE paper_bid ADD COLUMN fcas_trapezium_json TEXT"),
     ):
         try:
             con.execute(ddl)
@@ -650,9 +821,114 @@ def _init_schema(con: sqlite3.Connection) -> None:
             if "duplicate column" not in str(e).lower():
                 raise
 
-    # Seed RYAN1 BESS state (100 MW × 2h, start 50% SoC, 85% RTE, MLF 0.97).
-    # The MLF figure is representative of a NSW1 transmission-connected BESS;
-    # AEMO publishes the actual per-DUID MLF in its annual loss factors paper.
+    # ── nem_bidday_offer: include DIRECTION in the primary key ───────────
+    # Same IESS problem as bidper below: PK (settlementdate, duid, bidtype)
+    # made a battery's ENERGY sell (GEN) and buy (LOAD) price ladders
+    # overwrite each other — last file processed won. Rebuild with
+    # direction in the PK; rows repopulate from the next Next_Day_Offer /
+    # BIDMOVE files (14-day rolling window self-heals within a day).
+    bidday_sql_row = con.execute(
+        "SELECT sql FROM sqlite_master WHERE name='nem_bidday_offer'"
+    ).fetchone()
+    if bidday_sql_row and "bidtype, direction" not in bidday_sql_row[0]:
+        con.executescript(
+            """
+            ALTER TABLE nem_bidday_offer RENAME TO nem_bidday_offer_old;
+            CREATE TABLE nem_bidday_offer (
+                settlementdate TIMESTAMP NOT NULL,
+                duid TEXT NOT NULL,
+                bidtype TEXT NOT NULL,
+                direction TEXT,              -- GEN | LOAD | NULL (legacy)
+                entrytype TEXT,
+                priceband1 REAL, priceband2 REAL, priceband3 REAL,
+                priceband4 REAL, priceband5 REAL, priceband6 REAL,
+                priceband7 REAL, priceband8 REAL, priceband9 REAL,
+                priceband10 REAL,
+                daily_energy_constraint REAL,
+                t1 REAL, t2 REAL, t3 REAL, t4 REAL,
+                minimumload REAL,
+                submitted_at TIMESTAMP,
+                PRIMARY KEY (settlementdate, duid, bidtype, direction)
+            );
+            INSERT INTO nem_bidday_offer
+            SELECT settlementdate, duid, bidtype, direction, entrytype,
+                   priceband1, priceband2, priceband3, priceband4, priceband5,
+                   priceband6, priceband7, priceband8, priceband9, priceband10,
+                   daily_energy_constraint, t1, t2, t3, t4, minimumload,
+                   submitted_at
+            FROM nem_bidday_offer_old;
+            DROP TABLE nem_bidday_offer_old;
+            CREATE INDEX IF NOT EXISTS idx_bidday_duid_time
+                ON nem_bidday_offer(duid, settlementdate DESC);
+            """
+        )
+
+    # ── nem_bidper_offer: add DIRECTION to schema + primary key ──────────
+    # IESS bidirectional units (batteries) submit separate GEN (sell/
+    # discharge) and LOAD (buy/charge) ENERGY availabilities. The original
+    # table had no direction column AND its PK (interval, duid, bidtype,
+    # submitted_at) made the two directions collide — INSERT OR IGNORE
+    # silently dropped one side. SQLite can't alter a PK, so rebuild once:
+    # legacy rows keep direction=NULL (direction unknown; readers treat
+    # NULL as wildcard) and age out of the 14-day window naturally.
+    cols = [r[1] for r in con.execute("PRAGMA table_info(nem_bidper_offer)").fetchall()]
+    if cols and "direction" not in cols:
+        con.executescript(
+            """
+            ALTER TABLE nem_bidper_offer RENAME TO nem_bidper_offer_old;
+            CREATE TABLE nem_bidper_offer (
+                interval_datetime TIMESTAMP NOT NULL,
+                duid TEXT NOT NULL,
+                bidtype TEXT NOT NULL,
+                direction TEXT,              -- GEN | LOAD | NULL (pre-migration)
+                bandavail1 REAL, bandavail2 REAL, bandavail3 REAL,
+                bandavail4 REAL, bandavail5 REAL, bandavail6 REAL,
+                bandavail7 REAL, bandavail8 REAL, bandavail9 REAL,
+                bandavail10 REAL,
+                maxavail REAL, fixedload REAL,
+                rampuprate REAL, rampdownrate REAL,
+                submitted_at TIMESTAMP,
+                rebid_reason TEXT, rebid_explanation TEXT,
+                version INTEGER DEFAULT 1,
+                PRIMARY KEY (interval_datetime, duid, bidtype, direction, submitted_at)
+            );
+            INSERT INTO nem_bidper_offer
+                (interval_datetime, duid, bidtype, direction,
+                 bandavail1, bandavail2, bandavail3, bandavail4, bandavail5,
+                 bandavail6, bandavail7, bandavail8, bandavail9, bandavail10,
+                 maxavail, fixedload, rampuprate, rampdownrate,
+                 submitted_at, rebid_reason, rebid_explanation, version)
+            SELECT interval_datetime, duid, bidtype, NULL,
+                   bandavail1, bandavail2, bandavail3, bandavail4, bandavail5,
+                   bandavail6, bandavail7, bandavail8, bandavail9, bandavail10,
+                   maxavail, fixedload, rampuprate, rampdownrate,
+                   submitted_at, rebid_reason, rebid_explanation, version
+            FROM nem_bidper_offer_old;
+            DROP TABLE nem_bidper_offer_old;
+            CREATE INDEX IF NOT EXISTS idx_bidper_duid_time
+                ON nem_bidper_offer(duid, interval_datetime DESC);
+            """
+        )
+
+    # ── Migrate the legacy fictional RYAN1 paper account → WTAHB1 ─────────
+    # WTAHB1 is the real Waratah Super Battery DUID (850 MW / 1,680 MWh,
+    # FY25-26 MLF 0.9923). Idempotent: after the first boot the WHERE
+    # clause matches nothing. Trading history carries over unchanged.
+    for tbl in ("paper_bid", "paper_fill"):
+        try:
+            con.execute(f"UPDATE {tbl} SET duid='WTAHB1' WHERE duid='RYAN1'")
+        except sqlite3.OperationalError:
+            pass
+    con.execute(
+        """
+        UPDATE OR IGNORE paper_bess_state
+        SET duid='WTAHB1', capacity_mwh=1680.0, power_mw=850.0, mlf=0.9923
+        WHERE duid='RYAN1'
+        """
+    )
+
+    # Seed the WTAHB1 paper account (real Waratah Super Battery specs:
+    # 850 MW × ~2h, start 50% SoC, 88% RTE, FY25-26 MLF 0.9923).
     # Timestamp written in NEM time (UTC+10) so it matches dispatch rows.
     from datetime import datetime, timedelta
     nem_now = (datetime.utcnow() + timedelta(hours=10)).strftime("%Y-%m-%d %H:%M:%S")
@@ -661,7 +937,7 @@ def _init_schema(con: sqlite3.Connection) -> None:
         INSERT OR IGNORE INTO paper_bess_state
             (duid, capacity_mwh, power_mw, rte_pct, soc_mwh,
              cumulative_pnl_aud, last_settled_interval, updated_at, mlf)
-        VALUES ('RYAN1', 200.0, 100.0, 85.0, 100.0, 0.0, NULL, ?, 0.97)
+        VALUES ('WTAHB1', 1680.0, 850.0, 88.0, 840.0, 0.0, NULL, ?, 0.9923)
         """,
         (nem_now,),
     )
@@ -774,3 +1050,122 @@ def _init_schema(con: sqlite3.Connection) -> None:
         "WHERE resource_id IN ('VPP_BESS_LIDC1', 'VPP_BESS_MAC1') "
         "  AND dispatch_type = 'non_scheduled'"
     )
+
+    # ------------------------------------------------------------------
+    # Seed AEMO MLF data — 2025-26 Financial Year.
+    # Values sourced from AEMO published Loss Factor Report (annual release,
+    # Feb–Mar). Coordinates are approximate grid connection point locations.
+    # Only inserted once via INSERT OR IGNORE — a future scraper can upsert
+    # newer FY values without disrupting existing rows.
+    # Columns: duid, financial_year, station_name, region,
+    #          fuel_type, capacity_mw, mlf, lat, lon
+    _mlf_seed = [
+        # ===== NSW1 =====================================================
+        # Coal
+        ("BAYSW1",     "2025-26", "Bayswater U1",          "NSW1", "coal",    660, 0.9907, -32.339, 150.430),
+        ("BAYSW2",     "2025-26", "Bayswater U2",          "NSW1", "coal",    660, 0.9907, -32.339, 150.430),
+        ("BAYSW3",     "2025-26", "Bayswater U3",          "NSW1", "coal",    660, 0.9903, -32.339, 150.430),
+        ("BAYSW4",     "2025-26", "Bayswater U4",          "NSW1", "coal",    660, 0.9903, -32.339, 150.430),
+        ("ERARING1",   "2025-26", "Eraring U1",            "NSW1", "coal",    720, 0.9944, -33.062, 151.519),
+        ("ERARING2",   "2025-26", "Eraring U2",            "NSW1", "coal",    720, 0.9944, -33.062, 151.519),
+        ("ERARING3",   "2025-26", "Eraring U3",            "NSW1", "coal",    720, 0.9941, -33.062, 151.519),
+        ("ERARING4",   "2025-26", "Eraring U4",            "NSW1", "coal",    720, 0.9941, -33.062, 151.519),
+        ("VALES1",     "2025-26", "Mount Piper U1",        "NSW1", "coal",    700, 0.9872, -33.383, 150.102),
+        ("VALES2",     "2025-26", "Mount Piper U2",        "NSW1", "coal",    700, 0.9872, -33.383, 150.102),
+        # Gas
+        ("TALLAWDG1",  "2025-26", "Tallawarra B",          "NSW1", "gas",     316, 0.9952, -34.460, 150.872),
+        ("HUNTER",     "2025-26", "Hunter Power (peaker)", "NSW1", "gas",     750, 0.9886, -32.758, 151.562),
+        ("COLONGRA1",  "2025-26", "Colongra OCGT 1",       "NSW1", "gas",     171, 0.9921, -33.316, 151.520),
+        # Hydro / Pumped Hydro
+        ("TUMUT3",     "2025-26", "Tumut 3",               "NSW1", "hydro",  1500, 0.9741, -35.707, 148.332),
+        ("GUTHEGA1",   "2025-26", "Guthega",               "NSW1", "hydro",   60, 0.9719, -36.373, 148.372),
+        ("SHOALHVN1",  "2025-26", "Shoalhaven PS",         "NSW1", "hydro",   240, 0.9881, -34.970, 150.430),
+        # Wind
+        ("TARALGA1",   "2025-26", "Taralga Wind",          "NSW1", "wind",    107, 0.9843, -34.400, 149.530),
+        ("BODANGL1",   "2025-26", "Bodangora Wind",        "NSW1", "wind",    113, 0.9682, -32.036, 148.823),
+        ("BUNGABAN1",  "2025-26", "Bungaban Wind",         "NSW1", "wind",    220, 0.9744, -30.051, 148.623),
+        ("CROOKWL2",   "2025-26", "Crookwell 2 Wind",      "NSW1", "wind",     91, 0.9868, -34.491, 149.372),
+        ("SAPPHIRE1",  "2025-26", "Sapphire Wind",         "NSW1", "wind",    270, 0.9661, -29.835, 151.846),
+        # Solar
+        ("NSWSOL1",    "2025-26", "Darlington Point Solar","NSW1", "solar",   275, 0.9872, -34.553, 145.988),
+        ("CRUDINE1",   "2025-26", "Crudine Ridge Wind",    "NSW1", "wind",     79, 0.9864, -33.160, 149.480),
+        # BESS
+        ("WDWF1",      "2025-26", "Wallgrove BESS",        "NSW1", "battery",  50, 0.9894, -33.720, 150.870),
+        ("LISBERG1",   "2025-26", "Lake Cowal BESS",       "NSW1", "battery", 200, 0.9836, -33.395, 147.402),
+        ("CRWN_BESS",  "2025-26", "Crown Energy BESS NSW", "NSW1", "battery", 100, 0.9882, -33.897, 151.122),
+        # ===== QLD1 =====================================================
+        ("CALL_B_1",   "2025-26", "Callide B U1",          "QLD1", "coal",    350, 0.9822, -24.390, 150.480),
+        ("CALL_B_2",   "2025-26", "Callide B U2",          "QLD1", "coal",    350, 0.9822, -24.390, 150.480),
+        ("CALL_C_1",   "2025-26", "Callide C U1",          "QLD1", "coal",    420, 0.9814, -24.395, 150.482),
+        ("TARONG1",    "2025-26", "Tarong U1",              "QLD1", "coal",    350, 0.9851, -26.790, 151.910),
+        ("TARONG2",    "2025-26", "Tarong U2",              "QLD1", "coal",    350, 0.9851, -26.790, 151.910),
+        ("KOGAN1",     "2025-26", "Kogan Creek",           "QLD1", "coal",    744, 0.9796, -26.788, 150.783),
+        # Gas
+        ("BRAEMAR2",   "2025-26", "Braemar 2 OCGT",        "QLD1", "gas",     519, 0.9743, -26.895, 148.855),
+        ("URANQ11",    "2025-26", "Uranquinty OCGT",       "QLD1", "gas",     639, 0.9736, -35.177, 147.248),
+        # Wind
+        ("MILLMRWF1",  "2025-26", "Millmerran Wind",       "QLD1", "wind",    452, 0.9755, -27.143, 151.861),
+        ("COOROW1",    "2025-26", "Cooroora Solar",        "QLD1", "solar",   220, 0.9714, -26.432, 152.878),
+        # Solar
+        ("DKPSOLN1",   "2025-26", "Darling Downs Solar",   "QLD1", "solar",   180, 0.9741, -27.554, 151.261),
+        # BESS
+        ("WDGSF1",     "2025-26", "Western Downs Grid Storage","QLD1","battery",270,0.9764,-27.120, 150.820),
+        ("BALBNYB1",   "2025-26", "Bouldercombe BESS",     "QLD1", "battery", 100, 0.9748, -23.620, 150.520),
+        # ===== VIC1 =====================================================
+        ("LYA_P1",     "2025-26", "Loy Yang A U1",         "VIC1", "coal",    560, 0.9781, -38.220, 146.553),
+        ("LYA_P2",     "2025-26", "Loy Yang A U2",         "VIC1", "coal",    560, 0.9781, -38.220, 146.553),
+        ("LYA_P3",     "2025-26", "Loy Yang A U3",         "VIC1", "coal",    560, 0.9779, -38.220, 146.553),
+        ("LYA_P4",     "2025-26", "Loy Yang A U4",         "VIC1", "coal",    560, 0.9779, -38.220, 146.553),
+        ("LOYYB1",     "2025-26", "Loy Yang B U1",         "VIC1", "coal",    500, 0.9783, -38.226, 146.560),
+        ("LOYYB2",     "2025-26", "Loy Yang B U2",         "VIC1", "coal",    500, 0.9783, -38.226, 146.560),
+        # Gas
+        ("MORTLK11",   "2025-26", "Mortlake GT11",         "VIC1", "gas",     282, 0.9643, -38.127, 142.814),
+        ("LAVAPWR1",   "2025-26", "Laverton North",        "VIC1", "gas",     312, 0.9727, -37.852, 144.776),
+        # Wind
+        ("BANN1",      "2025-26", "Bannerton/Waubra Wind", "VIC1", "wind",    184, 0.9684, -37.407, 143.473),
+        ("LKBONNY1",   "2025-26", "Lake Bonney Stage 1",   "VIC1", "wind",    240, 0.9689, -37.621, 140.823),
+        ("MTGELION1",  "2025-26", "Mt Gellibrand Wind",    "VIC1", "wind",    132, 0.9641, -38.482, 143.643),
+        # Solar
+        ("LIMONDALE",  "2025-26", "Limondale Solar",       "VIC1", "solar",   248, 0.9793, -34.638, 146.222),
+        # BESS
+        ("BULGN",      "2025-26", "Bulgana Green Power",   "VIC1", "battery",  20, 0.9672, -37.123, 143.103),
+        ("GANNBG1",    "2025-26", "Gannawarra BESS",       "VIC1", "battery",  25, 0.9658, -35.616, 144.086),
+        ("KEPCOGHLD",  "2025-26", "Kepcor Glenrowan BESS", "VIC1", "battery",  50, 0.9731, -36.461, 146.134),
+        # ===== SA1 ======================================================
+        ("TORRNS11",   "2025-26", "Torrens Island A1",     "SA1",  "gas",     220, 0.9718, -34.773, 138.534),
+        ("OSBORNE1",   "2025-26", "Osborne",               "SA1",  "gas",     180, 0.9734, -34.832, 138.542),
+        ("PELICAN1",   "2025-26", "Pelican Point",         "SA1",  "gas",     480, 0.9703, -34.792, 138.550),
+        ("PPCCGT",     "2025-26", "Barker Inlet OCGT",     "SA1",  "gas",     211, 0.9721, -34.791, 138.553),
+        # Wind
+        ("WTGY1",      "2025-26", "Waterloo Wind",         "SA1",  "wind",    111, 0.9589, -33.981, 138.899),
+        ("CNUNDAWF1",  "2025-26", "Canunda Wind",          "SA1",  "wind",     46, 0.9541, -37.485, 140.552),
+        ("HDWF1",      "2025-26", "Hallett Wind",          "SA1",  "wind",     94, 0.9567, -33.394, 138.956),
+        # Solar
+        ("WAKOOL1",    "2025-26", "Robertstown Solar",     "SA1",  "solar",   200, 0.9602, -34.320, 139.230),
+        # BESS
+        ("HPRG1",      "2025-26", "Hornsdale Power Reserve","SA1", "battery", 150, 0.9632, -33.540, 138.219),
+        ("DALRYMPLE",  "2025-26", "Dalrymple North BESS",  "SA1",  "battery",  30, 0.9567, -33.900, 137.980),
+        ("NEOEN_SA1",  "2025-26", "Neoen SA BESS (Hulistat)","SA1","battery", 100, 0.9588, -33.534, 138.226),
+        # ===== TAS1 =====================================================
+        ("GORDON1",    "2025-26", "Gordon",                "TAS1", "hydro",   432, 0.9541, -42.535, 145.933),
+        ("POATINA1",   "2025-26", "Poatina",               "TAS1", "hydro",   300, 0.9583, -41.818, 146.828),
+        ("REECE1",     "2025-26", "Reece",                 "TAS1", "hydro",   231, 0.9619, -41.870, 145.100),
+        ("REECE2",     "2025-26", "Reece 2",               "TAS1", "hydro",   231, 0.9617, -41.872, 145.102),
+        ("CATTLE_H1",  "2025-26", "Cattle Hill Wind",      "TAS1", "wind",     84, 0.9671, -41.380, 147.540),
+        ("MUSSELROE1", "2025-26", "Musselroe Wind",        "TAS1", "wind",    168, 0.9443, -40.882, 148.113),
+        ("GRANVW1",    "2025-26", "Granville Harbour Wind","TAS1", "wind",    112, 0.9527, -41.789, 144.867),
+        ("WOOLNTH1",   "2025-26", "Woolnorth Wind",        "TAS1", "wind",     65, 0.9498, -40.710, 144.741),
+    ]
+    for row in _mlf_seed:
+        (duid, fy, station_name, region, fuel_type, capacity_mw,
+         mlf, lat, lon) = row
+        con.execute(
+            """
+            INSERT OR IGNORE INTO nem_mlf
+                (duid, financial_year, station_name, region,
+                 fuel_type, capacity_mw, mlf, lat, lon)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (duid, fy, station_name, region, fuel_type, capacity_mw,
+             mlf, lat, lon),
+        )

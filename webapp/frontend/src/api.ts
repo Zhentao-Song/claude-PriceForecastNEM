@@ -1,9 +1,11 @@
 import type {
+  ActiveConstraints,
   BessBacktestRequest, BessBacktestResponse,
   BessDefaultsResponse, BessModelResponse, BessRegion,
-  Bid, BidIn, BessState, BidStack, Constraints, FCASMatrix, Fill, Forecast,
-  GeneratorsSnapshot, GridSnapshot, Heatmap, History, MarketCatalog,
-  NextIntervals, PriceForecast, Snapshot, Timeline,
+  Bid, BidIn, BessState, BidStack, Constraints, DispatchPlan, FCASMatrix, Fill, Forecast,
+  GeneratorsSnapshot, GridSnapshot, Heatmap, History, MarketCatalog, OHLCData,
+  MLFResponse, MLFRegionsResponse,
+  NemWeather, NextIntervals, PaperAnalytics, PaperBidBatchResult, PriceForecast, Snapshot, STPASAResponse, STPASASummary, Timeline,
   VPPBid, VPPBidIn, VPPCompliance, VPPCustomerDemandCharge, VPPEnvelope,
   VPPFill, VPPMarketCatalog, VPPResourceHistory, VPPResourcePnlResponse,
   VPPRevenue, VPPState, VPPSuggestionsResponse, VPPTradingDayIn,
@@ -21,6 +23,16 @@ export async function fetchSnapshot(): Promise<Snapshot> {
 export async function fetchHistory(region: string, hours = 24): Promise<History> {
   const r = await fetch(`${BASE}/history?region=${encodeURIComponent(region)}&hours=${hours}`)
   if (!r.ok) throw new Error(`history ${r.status}`)
+  return r.json()
+}
+
+export async function fetchOHLC(region: string, hours = 24): Promise<OHLCData> {
+  // Scale bucket width to keep candle count legible (~40–80 candles per view)
+  const bm = hours <= 24 ? 30 : hours <= 72 ? 60 : 120
+  const r = await fetch(
+    `${BASE}/prices/ohlc?region=${encodeURIComponent(region)}&hours=${hours}&bucket_minutes=${bm}`,
+  )
+  if (!r.ok) throw new Error(`ohlc ${r.status}`)
   return r.json()
 }
 
@@ -100,7 +112,7 @@ export async function fetchGenerators(): Promise<GeneratorsSnapshot> {
 
 // ---- Paper trading -------------------------------------------------------
 
-export async function fetchPaperState(duid = 'RYAN1'): Promise<BessState> {
+export async function fetchPaperState(duid = 'WTAHB1'): Promise<BessState> {
   const r = await fetch(`${BASE}/paper/state?duid=${encodeURIComponent(duid)}`)
   if (!r.ok) throw new Error(`paper state ${r.status}`)
   return r.json()
@@ -153,9 +165,32 @@ export async function cancelPaperBid(bid_id: number): Promise<void> {
   }
 }
 
-export async function resetPaperState(duid = 'RYAN1'): Promise<void> {
+export async function resetPaperState(duid = 'WTAHB1'): Promise<void> {
   const r = await fetch(`${BASE}/paper/reset?duid=${encodeURIComponent(duid)}`, { method: 'POST' })
   if (!r.ok) throw new Error(`reset ${r.status}`)
+}
+
+export interface PaperBatchBidItem {
+  target_settlementdate: string
+  market?: string
+  direction?: string
+  bands: { price: number; mw: number }[]
+}
+
+export async function submitPaperBidBatch(
+  duid: string,
+  bids: PaperBatchBidItem[],
+): Promise<PaperBidBatchResult> {
+  const r = await fetch(`${BASE}/paper/bids/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duid, bids }),
+  })
+  if (!r.ok) {
+    const data = await r.json().catch(() => null)
+    throw new Error(data?.detail || `batch bid ${r.status}`)
+  }
+  return r.json()
 }
 
 // ---- SSE -----------------------------------------------------------------
@@ -355,5 +390,82 @@ export async function fetchBessBackfillStatus(): Promise<{
 }> {
   const r = await fetch(`${BASE}/bess/backfill/status`)
   if (!r.ok) throw new Error(`bess backfill status ${r.status}`)
+  return r.json()
+}
+
+// ---- MLF (Marginal Loss Factor) -----------------------------------------
+
+export async function fetchMLF(
+  region?: string,
+  fuelType?: string,
+): Promise<MLFResponse> {
+  const q = new URLSearchParams()
+  if (region) q.set('region', region)
+  if (fuelType) q.set('fuel_type', fuelType)
+  const qs = q.toString()
+  const r = await fetch(`${BASE}/mlf${qs ? `?${qs}` : ''}`)
+  if (!r.ok) throw new Error(`mlf ${r.status}`)
+  return r.json()
+}
+
+export async function fetchMLFRegions(): Promise<MLFRegionsResponse> {
+  const r = await fetch(`${BASE}/mlf/regions`)
+  if (!r.ok) throw new Error(`mlf/regions ${r.status}`)
+  return r.json()
+}
+
+// ---- Real-time BESS Dispatch Plan ----------------------------------------
+
+export async function fetchDispatchPlan(
+  duid = 'WTAHB1',
+  region = 'NSW1',
+  nIntervals = 24,
+): Promise<DispatchPlan> {
+  const q = new URLSearchParams({
+    duid,
+    region,
+    n_intervals: String(nIntervals),
+  })
+  const r = await fetch(`${BASE}/bess/dispatch-plan?${q}`)
+  if (!r.ok) throw new Error(`dispatch-plan ${r.status}`)
+  return r.json()
+}
+
+// ---- ST PASA --------------------------------------------------------------
+
+export async function fetchSTPASA(region: string, days = 14): Promise<STPASAResponse> {
+  const q = new URLSearchParams({ region, days: String(days) })
+  const r = await fetch(`${BASE}/pasa/st?${q}`)
+  if (!r.ok) throw new Error(`pasa/st ${r.status}`)
+  return r.json()
+}
+
+export async function fetchSTPASASummary(): Promise<STPASASummary> {
+  const r = await fetch(`${BASE}/pasa/st/summary`)
+  if (!r.ok) throw new Error(`pasa/st/summary ${r.status}`)
+  return r.json()
+}
+
+// ---- Constraint alerts ---------------------------------------------------
+
+export async function fetchActiveConstraints(region: string): Promise<ActiveConstraints> {
+  const q = new URLSearchParams({ region })
+  const r = await fetch(`${BASE}/constraints/active?${q}`)
+  if (!r.ok) throw new Error(`constraints/active ${r.status}`)
+  return r.json()
+}
+
+// ---- Paper trading analytics ---------------------------------------------
+
+export async function fetchPaperAnalytics(duid: string): Promise<PaperAnalytics> {
+  const r = await fetch(`${BASE}/paper/analytics?duid=${encodeURIComponent(duid)}`)
+  if (!r.ok) throw new Error(`paper analytics ${r.status}`)
+  return r.json()
+}
+
+
+export async function fetchNemWeather(): Promise<NemWeather> {
+  const r = await fetch(`${BASE}/weather/nem`)
+  if (!r.ok) throw new Error(`weather ${r.status}`)
   return r.json()
 }

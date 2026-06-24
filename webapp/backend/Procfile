@@ -1,0 +1,2 @@
+web: sh -c "RUN_SCHEDULER=0 uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"
+scheduler: python -m app.run_scheduler

@@ -1,0 +1,92 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>产品功能概览</title><style>@page{margin:1.6cm}body{font-family:-apple-system,'PingFang SC','Hiragino Sans GB',sans-serif;max-width:860px;margin:0 auto;padding:0 20px;color:#1d1d1f;line-height:1.6;font-size:13px}
+h1{font-size:24px;border-bottom:3px solid #0a84ff;padding-bottom:8px;margin-top:28px}
+h2{font-size:18px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;color:#0a4d8c}
+h3{font-size:15px;margin-top:18px;color:#333}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:12px;page-break-inside:avoid}
+th{background:#f0f4f8;border:1px solid #ccd;padding:6px 9px;text-align:left}
+td{border:1px solid #ddd;padding:5px 9px;vertical-align:top}
+code{background:#f3f3f5;padding:2px 5px;border-radius:4px;font-size:11px;color:#c0392b}
+pre{background:#1d1d1f;color:#e0e0e0;padding:12px;border-radius:8px;overflow-x:auto;font-size:11px;line-height:1.4}
+blockquote{border-left:3px solid #0a84ff;margin:12px 0;padding:4px 14px;background:#f7faff;color:#555}
+hr{border:none;border-top:1px solid #e0e0e0;margin:20px 0}
+ul{margin:8px 0;padding-left:22px}li{margin:3px 0}strong{color:#000}</style></head><body><h1>澳洲电力市场数据平台 · 产品功能概览</h1>
+<blockquote>产品经理视角的轻量说明。技术细节见 <code>PROJECT_OVERVIEW.md</code>。</blockquote>
+<hr>
+<h2>一句话定位</h2>
+<p>面向澳洲电力市场（东部 NEM + 西澳 WEM）的<strong>实时数据与交易分析平台</strong>，</p>
+<p>对标 ez2view / OpenNEM / Modo Energy 等专业终端，数据全部来自官方公开源。</p>
+<hr>
+<h2>6 个核心页面</h2>
+<h3>1. NEM 总览 — 市场全景</h3>
+<p>看懂&quot;现在五个州电价多少、谁在发电、接下来怎么走&quot;。</p>
+<ul>
+<li>五区域实时电价 / 需求 KPI 卡</li>
+<li>地理地图：发电机组分布 + 联络线实时潮流 + 损失因子热图</li>
+<li>燃料组合实时图（煤/气/水/风/光/储能/屋顶光伏占比）</li>
+<li>价格走势：K 线图、AEMO 官方预测、累积价格（CPT）预警</li>
+<li>历史任意一天回查、FCAS 辅助服务矩阵、90 天价格热力图</li>
+<li>天气关联、未来 14 天供需充裕度预测</li>
+</ul>
+<h3>2. BESS 储能 — 电池运营与交易</h3>
+<p>围绕电池储能的盈利分析与模拟交易。</p>
+<ul>
+<li>电池调度面板、AEMO 竞价生命周期跟踪</li>
+<li>智能建议报价、模拟交易盘（基于真实电池 Waratah）</li>
+<li><strong>收益榜单</strong>：全澳 58 家真实电池的套利收益排名</li>
+<li>合规记分卡</li>
+</ul>
+<h3>3. VPP 虚拟电厂 — 聚合资源运营</h3>
+<p>管理由分布式资源（户用电池、EV）聚合的虚拟电厂。</p>
+<ul>
+<li>投资组合管理、资源调度、收益分成建模</li>
+<li><strong>同行对标</strong>：AGL / ShineHub / EnelX 等 61 家真实聚合商的报价</li>
+</ul>
+<h3>4. BESS-Calc 投资测算器</h3>
+<p>储能项目&quot;值不值得投&quot;的财务工具。</p>
+<ul>
+<li>财务建模：度电成本 LCOS、内部收益率 IRR、净现值 NPV、回收期</li>
+<li>历史回测、敏感性分析</li>
+</ul>
+<h3>5. Stations 电站透视</h3>
+<p>查任意一台发电机组的&quot;全息档案&quot;。</p>
+<ul>
+<li>全澳 ~712 台机组：实时出力、损失因子、排放强度</li>
+<li>当日收益估算、出力 × 价格对照图</li>
+<li>真实竞价带（买电/卖电双向）</li>
+</ul>
+<h3>6. News 资讯</h3>
+<p>一站式看市场动态。</p>
+<ul>
+<li>澳洲能源新闻聚合（RenewEconomy、pv-magazine 等 4 家媒体），点击直达原文</li>
+<li>AEMO 官方公告流（缺电预警、市场干预等）</li>
+</ul>
+<hr>
+<h2>数据来源（均公开免费）</h2>
+<table><thead><tr><th>来源</th><th>提供什么</th></tr></thead><tbody><tr><td><strong>AEMO 东部市场</strong></td><td>实时电价、机组出力、竞价、预测、充裕度、屋顶光伏、市场公告</td></tr><tr><td><strong>AEMO 注册档案</strong></td><td>712 台机组的权威信息（区域/燃料/容量/损失因子）</td></tr><tr><td><strong>AEMO 西澳市场</strong></td><td>西澳参考价</td></tr><tr><td><strong>Open-Meteo</strong></td><td>天气（关联风光出力）</td></tr><tr><td><strong>能源媒体 RSS</strong></td><td>行业新闻</td></tr></tbody></table>
+<p>实时数据每 5 分钟更新；电价历史可追溯 14 个月。</p>
+<hr>
+<h2>产品现状与下一步</h2>
+<p><strong>已就绪</strong>：6 大功能页面、中英双语、实时数据管道全部跑通。</p>
+<p><strong>发布前需补强</strong>：</p>
+<ul>
+<li>模拟交易/VPP 演示数据需加 &quot;DEMO&quot; 标识（区分真实运营数据）</li>
+<li>AEMO 数据来源署名（合规要求）</li>
+</ul>
+<p><strong>规划中功能</strong>：</p>
+<ul>
+<li>价格告警推送（突破阈值/负价通知）</li>
+<li>碳排放强度展示</li>
+<li>移动端适配</li>
+<li>用户账户体系</li>
+</ul>
+<hr>
+<h2>截图位（待补充）</h2>
+<blockquote>建议每页配 1 张截图，发布/演示时替换：</blockquote>
+<ul>
+<li>[ ] NEM 总览 — 地图 + 价格图</li>
+<li>[ ] BESS 收益榜单</li>
+<li>[ ] VPP 同行对标</li>
+<li>[ ] Stations 电站透视</li>
+<li>[ ] News 资讯页</li>
+<li>[ ] BESS-Calc 测算结果</li>
+</ul></body></html>

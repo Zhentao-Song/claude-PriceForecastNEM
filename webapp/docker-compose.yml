@@ -6,8 +6,25 @@ services:
       - "8001:8000"
     volumes:
       - ./backend/app:/app/app:ro          # hot-reload source edits
-      - backend_data:/app/data             # DuckDB persists across restarts
+      - backend_data:/app/data             # SQLite persists across restarts
+    environment:
+      # API process: scrapers run in the separate `scheduler` service below, so
+      # a write stall can never freeze this process. Reads use WAL (concurrent
+      # with the scheduler's writes across processes).
+      - RUN_SCHEDULER=0
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # Dedicated scraper process — the ONLY SQLite writer. Shares the same DB
+  # volume; WAL lets the API service read concurrently. A write deadlock here
+  # is isolated to this process (watchdog restarts it) and never touches the API.
+  scheduler:
+    build: ./backend
+    container_name: nemwem-scheduler
+    volumes:
+      - ./backend/app:/app/app:ro
+      - backend_data:/app/data
+    command: python -m app.run_scheduler
     restart: unless-stopped
 
   frontend:

@@ -20,7 +20,7 @@ from ..config import (
     NEM_REGIONS,
     USER_AGENT,
 )
-from ..db import locked_conn
+from ..db import locked_conn, write_conn
 from .mms import parse_mms_csv
 
 log = logging.getLogger("scraper.nem")
@@ -69,7 +69,7 @@ def get_last_file(source: str) -> str | None:
 
 
 def set_state(source: str, last_file: str | None, error: str | None = None) -> None:
-    with locked_conn() as con:
+    with write_conn() as con:
         con.execute(
             """
             INSERT INTO scraper_state (source, last_file, last_run, last_error)
@@ -129,7 +129,7 @@ def upsert_prices(rows: Iterable[dict[str, str]]) -> int:
         ))
     if not payload:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         con.executemany(
             """
             INSERT INTO nem_dispatch_price VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -176,7 +176,7 @@ def upsert_interconnector_flow(rows: Iterable[dict[str, str]]) -> int:
         ))
     if not payload:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         con.executemany(
             """
             INSERT INTO nem_interconnector_flow VALUES (?,?,?,?,?,?,?,?)
@@ -221,7 +221,7 @@ def upsert_dispatch_constraint(rows: Iterable[dict[str, str]]) -> int:
         ))
     if not payload:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         con.executemany(
             """
             INSERT INTO nem_dispatch_constraint VALUES (?,?,?,?,?)
@@ -254,7 +254,7 @@ def upsert_region_summary(rows: Iterable[dict[str, str]]) -> int:
         ))
     if not payload:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         con.executemany(
             """
             INSERT INTO nem_region_summary VALUES (?,?,?,?,?)

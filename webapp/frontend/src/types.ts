@@ -29,6 +29,13 @@ export type RegionSnapshot = {
   totaldemand: number | null
   availablegeneration: number | null
   netinterchange: number | null
+  /** NER cumulative-price mechanism: rolling 2,016-interval RRP sum. */
+  cumulative_price?: number | null
+  cpt_threshold?: number | null
+  cpt_pct?: number | null
+  cpt_intervals?: number | null
+  apc_active?: boolean | null
+  apc_price?: number | null
 }
 
 export type WemSnapshot = {
@@ -63,6 +70,22 @@ export type History = {
   region: string
   series: HistoryPoint[]
   bucket_minutes?: number
+}
+
+export type OHLCPoint = {
+  t: string      // bucket start NEM time, e.g. "2026-06-03T14:00"
+  open: number
+  high: number
+  low: number
+  close: number
+  count: number  // number of 5-min dispatch intervals in this candle
+}
+
+export type OHLCData = {
+  region: string
+  bucket_minutes: number
+  hours: number
+  series: OHLCPoint[]
 }
 
 export type ForecastPoint = {
@@ -132,7 +155,7 @@ export type GridSnapshot = {
 
 export type Fuel =
   | 'coal_black' | 'coal_brown' | 'gas' | 'hydro'
-  | 'wind' | 'solar' | 'battery' | 'bioenergy'
+  | 'wind' | 'solar' | 'rooftop_solar' | 'battery' | 'bioenergy'
 
 export type Station = {
   station: string
@@ -179,6 +202,9 @@ export type BidIn = {
   /** Optional bid_id of an existing PENDING bid to supersede. Must match
    *  the same (DUID, target, market, direction). Old bid is auto-cancelled. */
   replaces_bid_id?: number | null
+  /** FCAS co-optimisation trapezium (NER 3.8.7A). Optional — only sent for
+   *  FCAS market bids submitted via the FCAS bid panel. */
+  fcas_trapezium?: VPPFcasTrapezium | null
 }
 
 export type Bid = {
@@ -195,6 +221,9 @@ export type Bid = {
    *  PENDING bid (same DUID/target/market/direction). The chain root has
    *  previous_bid_id = null. */
   previous_bid_id: number | null
+  /** FCAS co-optimisation trapezium. Present only on FCAS bids submitted
+   *  via the FCAS bid panel; null for ENERGY bids and legacy bids. */
+  fcas_trapezium: VPPFcasTrapezium | null
 }
 
 export type Fill = {
@@ -231,6 +260,23 @@ export type BessState = {
 export type NextIntervals = {
   intervals: string[]    // NEM time, naive ISO
   interval_minutes: number
+}
+
+// ---- Paper batch bid -------------------------------------------------------
+
+export type PaperBidBatchResultItem = {
+  ok: boolean
+  target: string
+  market: string
+  direction: string
+  bid_id?: number
+  error?: string
+}
+
+export type PaperBidBatchResult = {
+  submitted: number
+  failed: number
+  results: PaperBidBatchResultItem[]
 }
 
 export type MarketCatalog = {
@@ -1002,6 +1048,70 @@ export type VPPTradingDayResponse = {
   skipped: { interval: string; reason: string }[]
 }
 
+// ---- MLF (Marginal Loss Factor) -----------------------------------------
+
+export type MLFEntry = {
+  duid: string
+  station_name: string | null
+  region: string
+  fuel_type: string | null
+  capacity_mw: number | null
+  mlf: number
+  lat: number | null
+  lon: number | null
+  financial_year: string
+}
+
+export type MLFResponse = {
+  financial_year: string
+  source: string
+  regional_averages: Record<string, number>
+  entries: MLFEntry[]
+  count: number
+}
+
+export type MLFRegionsResponse = {
+  financial_year: string
+  source: string
+  averages: Record<string, number>  // region → capacity-weighted avg MLF
+}
+
+// ---- BESS Real-time Dispatch Plan ----------------------------------------
+
+export type DispatchInterval = {
+  interval: string                // NEM-time ISO string
+  source: 'P5MIN' | 'PREDISPATCH'
+  /** 5 for P5MIN dispatch intervals; 30 for PREDISPATCH trading periods */
+  interval_minutes: number
+  action: 'charge' | 'discharge' | 'idle'
+  power_mw: number
+  price_forecast_aud: number
+  expected_revenue_aud: number
+  soc_after_mwh: number
+  soc_after_pct: number
+}
+
+export type DispatchPlan = {
+  duid: string
+  region: string
+  generated_at: string
+  current_soc_mwh: number
+  current_soc_pct: number
+  capacity_mwh: number
+  power_mw: number
+  mlf: number
+  rte_pct: number
+  n_intervals: number
+  horizon_minutes: number
+  expected_total_revenue_aud: number
+  n_discharge: number
+  n_charge: number
+  n_idle: number
+  avg_discharge_price: number | null
+  avg_charge_price: number | null
+  plan: DispatchInterval[]
+}
+
 export type VPPMarketCatalog = {
   energy: string[]
   raise_fcas: string[]
@@ -1011,4 +1121,114 @@ export type VPPMarketCatalog = {
   mpc: number
   interval_minutes: number
   max_bands: number
+}
+
+// ---- ST PASA (Short-Term Projected Assessment of System Adequacy) ---------
+
+export type STPASAPoint = {
+  interval_datetime: string
+  demand10: number | null
+  demand50: number | null
+  demand90: number | null
+  available_generation: number | null
+  lrc: number | null
+  /** 0=OK, 1=LOR1, 2=LOR2, 3=LOR3 */
+  reservecondition: number | null
+  run_datetime: string | null
+}
+
+export type STPASAResponse = {
+  region: string
+  days: number
+  latest_run: string | null
+  series: STPASAPoint[]
+  count: number
+  /** { "0": N, "1": N, "2": N, "3": N } */
+  lor_counts: Record<string, number>
+  available_regions: string[]
+}
+
+export type STPASASummaryRegion = {
+  regionid: string
+  worst_lor: number | null
+  lor_intervals: number
+  latest_run: string | null
+}
+
+export type STPASASummary = {
+  regions: Record<string, STPASASummaryRegion>
+  horizon_days: number
+}
+
+// ---- Constraint alerts ---------------------------------------------------
+
+export type ActiveConstraint = {
+  settlementdate: string
+  constraintid: string
+  rhs: number | null
+  marginalvalue: number | null
+  violationdegree: number | null
+}
+
+export type ActiveConstraints = {
+  region: string
+  active: ActiveConstraint[]
+  as_at: string | null
+  /** 0 = none, 1 = binding (shadow price only), 2 = violated */
+  severity: number
+}
+
+// ---- Paper trading analytics ---------------------------------------------
+
+export type PaperDailyPnL = {
+  day: string          // "YYYY-MM-DD"
+  energy_pnl: number
+  fcas_pnl: number
+  total_pnl: number
+  cumulative: number   // running sum to this day
+  n_fills: number
+  win_rate: number     // % of fills with revenue > 0
+}
+
+export type PaperAnalyticsStats = {
+  total_pnl: number
+  pnl_7d: number
+  pnl_30d: number
+  annualized_aud: number
+  n_fills: number
+  win_rate: number
+  first_fill: string | null
+  last_fill: string | null
+  trading_days: number
+}
+
+export type PaperAnalytics = {
+  daily: PaperDailyPnL[]
+  stats: PaperAnalyticsStats
+}
+
+// ---- Weather -----------------------------------------------------------------
+
+export type WeatherRegion = {
+  region: string
+  city: string
+  temperature: number | null
+  apparent_temperature: number | null
+  wind_speed_kmh: number | null
+  wind_direction_deg: number | null
+  solar_radiation_wm2: number | null
+  precipitation_mm: number | null
+  weather_code: number | null
+  /** 7-day hourly series (168 items each: past 6 days + today) */
+  hourly_times: string[]
+  hourly_temp: number[]
+  hourly_solar: number[]
+  hourly_wind_speed: number[]
+  hourly_wind_dir: number[]
+  error?: string
+}
+
+export type NemWeather = {
+  regions: WeatherRegion[]
+  cache_age_s: number
 }

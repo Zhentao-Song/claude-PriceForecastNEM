@@ -32,7 +32,7 @@ import math
 import random
 from datetime import datetime, timedelta
 
-from .db import locked_conn
+from .db import write_conn
 
 log = logging.getLogger("vpp.telemetry")
 
@@ -113,7 +113,7 @@ def tick() -> dict:
     h_local = now.hour + now.minute / 60.0
 
     out = {"ev_updated": 0, "bess_updated": 0}
-    with locked_conn() as con:
+    with write_conn() as con:
         rows = con.execute(
             """
             SELECT resource_id, kind, nameplate_kw, capacity_kwh, soc_kwh,

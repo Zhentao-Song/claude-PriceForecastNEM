@@ -1,11 +1,13 @@
 """NEM Dispatch_SCADA scraper.
 
 Polls /Reports/Current/Dispatch_SCADA/, downloads new ZIPs, and stores
-unit-level MW output for the DUIDs we know about (see static/generators.py).
+unit-level MW output for ALL DUIDs (~500 units per 5-min interval).
 
-We deliberately filter to the curated DUID list — full SCADA is ~500
-units per 5min and would balloon the SQLite DB unnecessarily for a demo
-console. Adding more DUIDs is just a metadata edit.
+Full ingest (no curated-list filter) so the fuel mix, station explorer
+and BESS leaderboard see every unit AEMO publishes — display-side code
+joins against static/generators.py or nem_dudetail for metadata.
+~500 rows × 288 intervals/day ≈ 145k rows/day; SQLite handles this fine
+with the (settlementdate, duid) PK.
 """
 from __future__ import annotations
 
@@ -19,8 +21,7 @@ from typing import Iterable
 import httpx
 
 from ..config import HTTP_TIMEOUT, NEM_DISPATCHSCADA_DIR, USER_AGENT
-from ..db import locked_conn
-from ..static.generators import GENERATORS_BY_DUID
+from ..db import write_conn
 from .mms import parse_mms_csv
 from .nem import _parse_dt, _to_float, get_last_file, set_state
 
@@ -53,11 +54,11 @@ def extract_csv(zip_bytes: bytes) -> str:
 
 
 def upsert_unit_dispatch(rows: Iterable[dict[str, str]]) -> int:
-    """Filter to known DUIDs, upsert (settlementdate, duid, mw)."""
+    """Upsert (settlementdate, duid, mw) for every DUID in the file."""
     payload = []
     for r in rows:
         duid = r.get("DUID", "").strip().strip('"')
-        if duid not in GENERATORS_BY_DUID:
+        if not duid:
             continue
         ts = _parse_dt(r.get("SETTLEMENTDATE", ""))
         if ts is None:
@@ -66,7 +67,7 @@ def upsert_unit_dispatch(rows: Iterable[dict[str, str]]) -> int:
         payload.append((ts, duid, mw))
     if not payload:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         con.executemany(
             """
             INSERT INTO nem_unit_dispatch VALUES (?,?,?)

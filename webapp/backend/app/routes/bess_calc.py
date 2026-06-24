@@ -39,6 +39,30 @@ REGION_MLF: dict[str, float] = {
 }
 
 
+# ---- MLF helpers ---------------------------------------------------------
+
+CURRENT_MLF_FY = "2025-26"
+
+
+def _regional_mlf_from_db(con, region: str, fy: str = CURRENT_MLF_FY) -> float | None:
+    """Capacity-weighted average MLF for a region from the nem_mlf table.
+
+    Returns None when the table is empty (fresh install before DB seed).
+    The caller falls back to REGION_MLF in that case.
+    """
+    row = con.execute(
+        """
+        SELECT SUM(mlf * COALESCE(capacity_mw, 1)) / SUM(COALESCE(capacity_mw, 1))
+        FROM nem_mlf
+        WHERE region = ? AND financial_year = ?
+        """,
+        (region, fy),
+    ).fetchone()
+    if row and row[0] is not None:
+        return round(float(row[0]), 4)
+    return None
+
+
 # ---- Real-data calibration helpers ---------------------------------------
 
 def _quantile(sorted_vals: list[float], q: float) -> float:
@@ -223,6 +247,13 @@ def bess_defaults(region: str = Query("NSW1"),
     spread_stats = _historical_arb_spread(region, lookback_days)
     fcas_stats = _historical_fcas_per_mw_year(region)
 
+    # Real MLF from nem_mlf table (capacity-weighted FY average).
+    # Falls back to hardcoded REGION_MLF when the table is empty.
+    with locked_conn() as con:
+        db_mlf = _regional_mlf_from_db(con, region)
+    real_mlf    = db_mlf if db_mlf is not None else REGION_MLF.get(region, 0.98)
+    mlf_source  = "db" if db_mlf is not None else "regional_baseline"
+
     # If we have NO data (fresh DB), fall back to representative NSW
     # numbers so the UI still shows a sane starting point.
     spread_fallback = {"NSW1": 150, "QLD1": 140, "VIC1": 130, "SA1": 160, "TAS1": 80}
@@ -250,7 +281,7 @@ def bess_defaults(region: str = Query("NSW1"),
         "cycles_per_day": 1.2,
         "degradation_pct_year": 2.0,
         "aux_load_pct": 1.5,
-        "mlf": REGION_MLF.get(region, 0.98),
+        "mlf": real_mlf,
         "project_life_years": 20,
         "augmentation_capex_pct": 15.0,
         "augmentation_year": 12,
@@ -274,8 +305,15 @@ def bess_defaults(region: str = Query("NSW1"),
     # block. The UI uses `stats` to render the calibration strip below
     # each input: "median 148 · IQR 95-205 · last 7d 165".
     provenance = {
-        "mlf":                      {"source": "regional_baseline",
-                                      "note": f"AEMO 2024-25 representative for {region}"},
+        "mlf": {
+            "source": mlf_source,
+            "note": (
+                f"AEMO {CURRENT_MLF_FY} capacity-weighted regional avg "
+                f"({real_mlf:.4f}), {region}"
+                if mlf_source == "db"
+                else f"AEMO 2024-25 representative for {region}"
+            ),
+        },
         "arb_spread_per_mwh": {
             "source": "historical" if spread_stats else "fallback",
             "note": (f"Top 4h vs bottom 4h daily spread, last {lookback_days}d of {region} RRP"
@@ -508,3 +546,229 @@ def bess_backfill_status() -> dict:
         ).fetchone()
     state["db_days_nsw1"] = int(rows[0]) if rows else 0
     return state
+
+
+# ---- Real-time BESS dispatch recommendation --------------------------------
+
+@router.get("/dispatch-plan")
+def get_dispatch_plan(
+    duid: str = Query("WTAHB1", description="BESS DUID to plan for"),
+    region: str = Query("NSW1", description="NEM region for price lookup"),
+    n_intervals: int = Query(24, ge=1, le=72, description="Forecast horizon (5-min intervals, max 72 = 6h)"),
+):
+    """Generate a real-time BESS dispatch recommendation.
+
+    Uses the current SoC from `paper_bess_state` plus AEMO P5MIN/PREDISPATCH
+    forecast prices to recommend charge / discharge / idle actions for the
+    next `n_intervals` × 5-minute intervals.
+
+    Optimisation strategy
+    ----------------------
+    * Sort forecast intervals by price.
+    * Assign discharge to the highest-priced slots (revenue maximising).
+    * Assign charge to the lowest-priced slots (cheapest recharge).
+    * Both assignments are bounded by SoC headroom and the spread threshold
+      (charge-price must be low enough vs. discharge-price to cover RTE losses
+      + MLF cost, i.e. expected net spread > min_spread_threshold).
+    * Idle when no profitable spread exists.
+
+    Returns per-interval plan with action, expected revenue, and SoC trajectory.
+    """
+    region = region.upper()
+    if region not in NEM_REGIONS:
+        raise HTTPException(400, f"Unknown region '{region}'. Use one of: {sorted(NEM_REGIONS)}")
+
+    with locked_conn() as con:
+        # 1. Current BESS state
+        state_row = con.execute(
+            """
+            SELECT capacity_mwh, power_mw, rte_pct, soc_mwh, mlf
+            FROM paper_bess_state WHERE duid = ?
+            """,
+            (duid,),
+        ).fetchone()
+        if state_row is None:
+            raise HTTPException(404, f"BESS DUID '{duid}' not found in paper_bess_state")
+
+        capacity_mwh, power_mw, rte_pct, soc_mwh, mlf = state_row
+        rte = rte_pct / 100.0
+
+        # 2. Compute NEM-time "now" (UTC + 10 h).
+        #    All dispatch intervals are stored in NEM time (naive, no tz).
+        nem_now = (datetime.utcnow() + timedelta(hours=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Fetch future intervals only (interval_datetime > now).
+        # Priority rule: P5MIN covers ~1h at 5-min resolution; PREDISPATCH
+        # covers ~40h at 30-min resolution. Where both exist for the same
+        # interval (e.g. on-the-hour :30/:00 boundaries), P5MIN wins because
+        # its run_datetime is fresher (5-min publication cycle vs 30-min).
+        # CASE sort: P5MIN=0, PREDISPATCH=1 → ascending puts P5MIN first
+        # in the result set so the dedup below picks it for shared intervals.
+        forecast_rows = con.execute(
+            """
+            SELECT interval_datetime, COALESCE(rrp, 0.0) AS rrp, source
+            FROM nem_predispatch_price
+            WHERE regionid = ?
+              AND rrp IS NOT NULL
+              AND interval_datetime > ?
+            ORDER BY
+              CASE WHEN source = 'P5MIN' THEN 0 ELSE 1 END,  -- P5MIN first
+              interval_datetime
+            LIMIT ?
+            """,
+            (region, nem_now, n_intervals * 4),   # over-fetch; dedup below
+        ).fetchall()
+
+        # Deduplicate per interval: first occurrence wins (P5MIN thanks to sort)
+        seen: dict[str, tuple[float, str]] = {}
+        for iv, rrp, src in forecast_rows:
+            if iv not in seen:
+                seen[iv] = (rrp, src)
+        intervals_sorted = sorted(seen.items())[:n_intervals]   # chronological
+
+    if not intervals_sorted:
+        raise HTTPException(503, "No P5MIN/PREDISPATCH data for region — try again in a moment")
+
+    n = len(intervals_sorted)
+    # Per-interval duration in hours. P5MIN = 5-min dispatch intervals (5/60).
+    # PREDISPATCH = 30-min trading periods (30/60). Revenue and SoC changes
+    # are scaled by the actual duration so a PREDISPATCH discharge earns 6×
+    # what a single 5-min dispatch interval earns at the same price.
+    def interval_hours(src: str) -> float:
+        return 5.0 / 60.0 if src == "P5MIN" else 30.0 / 60.0
+
+    # Representative interval size for SoC-budget arithmetic (use smallest unit
+    # = 5 min so we don't over-allocate slots on the PREDISPATCH side).
+    mwh_per_5min = power_mw * (5.0 / 60.0)
+
+    min_soc = capacity_mwh * 0.05   # 5 % DoD floor
+    max_soc = capacity_mwh * 0.95   # 95 % ceiling
+
+    # 3. Build price index and determine charge / discharge assignment.
+    #    Each interval has a different energy capacity:
+    #      P5MIN    →  power_mw × 5/60  MWh
+    #      PREDISPATCH → power_mw × 30/60 MWh
+    prices  = [rrp for _, (rrp, _) in intervals_sorted]
+    sources = [src for _, (_, src) in intervals_sorted]
+    ivh     = [interval_hours(src) for src in sources]   # hours per interval
+    iv_mwh  = [power_mw * h for h in ivh]               # max MWh per interval
+
+    idx_by_price_asc = sorted(range(n), key=lambda i: prices[i])
+
+    # Minimum net spread to justify dispatch ($/MWh discharged).
+    # net = discharge_price × mlf − charge_price / (rte × mlf)
+    MIN_NET_SPREAD = 30.0
+
+    actions: list[str] = ["idle"] * n
+
+    # ── Step 1: Assign discharge slots ──────────────────────────────────
+    # Highest-priced intervals first, limited by available SoC headroom.
+    dischg_budget_mwh = max(0.0, soc_mwh - min_soc)
+    dischg_used = 0.0
+    for idx in reversed(idx_by_price_asc):
+        remaining = dischg_budget_mwh - dischg_used
+        if remaining <= 0:
+            break
+        actions[idx] = "discharge"
+        dischg_used += min(iv_mwh[idx], remaining)
+
+    # ── Step 2: Assign charge slots ──────────────────────────────────────
+    # Only charge enough to *replenish* what we plan to discharge,
+    # i.e. charge_input_budget = dischg_used / rte. This prevents the
+    # optimiser charging speculatively for energy it won't dispatch in
+    # the current horizon.
+    charge_input_budget = dischg_used / rte           # MWh of charge input needed
+    capacity_headroom   = (max_soc - soc_mwh) / rte  # physical headroom cap
+    charge_budget_mwh   = min(charge_input_budget, capacity_headroom)
+
+    # Only charge if it makes economic sense vs best discharge price.
+    dischg_prices = [prices[i] for i in range(n) if actions[i] == "discharge"]
+    best_d = max(dischg_prices) if dischg_prices else 0.0
+
+    charge_used = 0.0
+    for idx in idx_by_price_asc:
+        remaining = charge_budget_mwh - charge_used
+        if remaining <= 0:
+            break
+        if actions[idx] == "discharge":
+            continue    # don't double-book
+        p_charge = prices[idx]
+        net = best_d * mlf - p_charge / (rte * mlf)
+        if net < MIN_NET_SPREAD:
+            break   # remaining charge prices don't yield profitable spread
+        actions[idx] = "charge"
+        charge_used += min(iv_mwh[idx], remaining)
+
+    # 4. Simulate SoC trajectory and compute revenue
+    plan: list[dict] = []
+    current_soc = soc_mwh
+    total_rev = 0.0
+
+    for i, (interval_dt, (price, source)) in enumerate(intervals_sorted):
+        action  = actions[i]
+        h       = interval_hours(source)          # 5/60 for P5MIN, 30/60 for PREDISPATCH
+        mwh_cap = power_mw * h                    # max energy in this interval
+        rev     = 0.0
+        soc_after = current_soc
+
+        if action == "discharge" and current_soc > min_soc:
+            actual_mwh = min(mwh_cap, current_soc - min_soc)
+            rev = actual_mwh * price * mlf
+            soc_after = current_soc - actual_mwh
+        elif action == "charge" and current_soc < max_soc:
+            space = max_soc - current_soc          # MWh of free headroom
+            charge_in_mwh = min(mwh_cap, space / rte)
+            energy_stored = charge_in_mwh * rte
+            rev = -charge_in_mwh * price / mlf    # cost (negative)
+            soc_after = current_soc + energy_stored
+        else:
+            action = "idle"
+            rev = 0.0
+
+        current_soc = max(min_soc, min(max_soc, soc_after))
+        total_rev += rev
+
+        plan.append({
+            "interval":             interval_dt,
+            "source":               source,
+            "interval_minutes":     5 if source == "P5MIN" else 30,
+            "action":               action,
+            "power_mw":             power_mw if action != "idle" else 0.0,
+            "price_forecast_aud":   round(price, 2),
+            "expected_revenue_aud": round(rev, 2),
+            "soc_after_mwh":        round(current_soc, 2),
+            "soc_after_pct":        round(current_soc / capacity_mwh * 100, 1),
+        })
+
+    # Summary statistics
+    discharge_intervals = [p for p in plan if p["action"] == "discharge"]
+    charge_intervals    = [p for p in plan if p["action"] == "charge"]
+    avg_discharge_price = (
+        sum(p["price_forecast_aud"] for p in discharge_intervals) / len(discharge_intervals)
+        if discharge_intervals else None
+    )
+    avg_charge_price = (
+        sum(p["price_forecast_aud"] for p in charge_intervals) / len(charge_intervals)
+        if charge_intervals else None
+    )
+
+    return {
+        "duid":                    duid,
+        "region":                  region,
+        "generated_at":            datetime.utcnow().isoformat() + "Z",
+        "current_soc_mwh":         round(soc_mwh, 2),
+        "current_soc_pct":         round(soc_mwh / capacity_mwh * 100, 1),
+        "capacity_mwh":            capacity_mwh,
+        "power_mw":                power_mw,
+        "mlf":                     mlf,
+        "rte_pct":                 rte_pct,
+        "n_intervals":             n,
+        "horizon_minutes":         n * 5,
+        "expected_total_revenue_aud": round(total_rev, 2),
+        "n_discharge":             len(discharge_intervals),
+        "n_charge":                len(charge_intervals),
+        "n_idle":                  sum(1 for p in plan if p["action"] == "idle"),
+        "avg_discharge_price":     round(avg_discharge_price, 2) if avg_discharge_price is not None else None,
+        "avg_charge_price":        round(avg_charge_price, 2) if avg_charge_price is not None else None,
+        "plan":                    plan,
+    }

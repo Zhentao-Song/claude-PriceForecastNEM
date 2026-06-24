@@ -93,12 +93,51 @@ export function PriceKPIs({ region, forecastRun }: Props) {
         delta={fcDemandDelta != null ? `${deltaArrow(fcDemandDelta)} ${fmt0(Math.abs(fcDemandDelta))}` : undefined}
         deltaClass={deltaTone(fcDemandDelta)}
       />
-      <Kpi
-        label={t('kpi.apc')}
-        value={t('kpi.apc.inactive')}
-        sub={t('kpi.apc.note')}
-        dim
-      />
+      <CptKpi region={region} />
+    </div>
+  )
+}
+
+/** Live cumulative-price / CPT card. Three states:
+ *    normal (<75 %)  — grey, shows rolling sum + % of threshold
+ *    watch  (≥75 %)  — orange, market is approaching administered pricing
+ *    ACTIVE (≥100 %) — red, AEMO caps the region at the APC ($600/MWh)  */
+function CptKpi({ region }: { region: RegionSnapshot }) {
+  const { t } = useT()
+  const cum = region.cumulative_price
+  const pct = region.cpt_pct
+  if (cum == null || pct == null) {
+    return <Kpi label={t('kpi.apc')} value={t('kpi.apc.inactive')} sub={t('kpi.apc.note')} dim />
+  }
+  const active = region.apc_active === true
+  const watch = !active && pct >= 75
+  const value = active ? t('kpi.apc.active') : watch ? t('kpi.apc.watch') : t('kpi.apc.inactive')
+  const color = active ? '#ff3b30' : watch ? '#ff9500' : undefined
+  const cumM = cum >= 1_000_000 ? `$${(cum / 1_000_000).toFixed(2)}M` : `$${Math.round(cum / 1000)}k`
+  const thrM = `$${((region.cpt_threshold ?? 1_576_800) / 1_000_000).toFixed(2)}M`
+  return (
+    <div className="bg-surfaceAlt rounded-lg px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted">{t('kpi.apc')}</div>
+      <div className="flex items-baseline gap-1 mt-1">
+        <span className={`text-[20px] font-semibold tabular-nums leading-none ${color ? '' : 'text-muted'}`}
+              style={color ? { color } : undefined}>
+          {value}
+        </span>
+        <span className="text-[11px] tabular-nums ml-auto text-muted">{pct.toFixed(1)}%</span>
+      </div>
+      {/* Progress toward the threshold */}
+      <div className="h-1.5 rounded-full bg-black/5 overflow-hidden mt-1.5">
+        <div className="h-full rounded-full transition-all"
+             style={{
+               width: `${Math.min(100, pct)}%`,
+               background: active ? '#ff3b30' : watch ? '#ff9500' : '#86868b',
+               opacity: 0.85,
+             }} />
+      </div>
+      <div className="text-[10px] text-muted mt-1 tabular-nums">
+        {t('kpi.apc.cum')} {cumM} / {thrM}
+        {active ? ` · ${t('kpi.apc.capNote')}` : ''}
+      </div>
     </div>
   )
 }

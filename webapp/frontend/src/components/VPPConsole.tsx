@@ -7,6 +7,7 @@ import {
 } from '../api'
 import { BidLifecycleTimeline } from './BidLifecycleTimeline'
 import { ComplianceScorecard } from './ComplianceScorecard'
+import { VPPCompetitorBids } from './VPPCompetitorBids'
 import type {
   VPPBid, VPPChannel, VPPClassification, VPPCustomerDemandCharge,
   VPPDispatchType, VPPEnvelope, VPPFcasTrapezium, VPPMarketCatalog,
@@ -1084,6 +1085,14 @@ export function VPPConsole() {
           <span className="text-[10px] text-muted/70">{t('vpp.complianceLinkHint')}</span>
         </button>
       </div>
+
+      {/* ============================ COMPETITOR VPP BIDS =================== */}
+      {/* Benchmark block: what AGL / ShineHub / EnelX & co actually bid into
+          FCAS, straight from AEMO's D+1 disclosure. Gives the paper VPP
+          above a real-market yardstick. */}
+      <section className="bg-surface rounded-xl2 p-6 shadow-card">
+        <VPPCompetitorBids />
+      </section>
     </div>
   )
 }

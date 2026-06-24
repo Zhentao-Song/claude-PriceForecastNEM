@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Query
 
 from .. import scheduler
-from ..config import NEM_REGIONS
+from ..cache import ttl_cache
+from ..config import APC_PRICE_AUD, CPT_INTERVALS, CPT_THRESHOLD_AUD, NEM_REGIONS
 from ..db import locked_conn
 from ..scrapers import backfill
 
@@ -14,7 +15,51 @@ router = APIRouter(prefix="/api", tags=["prices"])
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "scrapers": scheduler.status()}
+    """Scraper status + per-table data ages. `stale: true` on a feed means
+    its newest row is older than 3× the expected publish cadence — the
+    quickest tell that NEMWeb changed format or the scraper is wedged."""
+    nem_now = _nem_now()
+    ages = {}
+    checks = [
+        # table, ts column, expected cadence (min)
+        ("nem_dispatch_price", "settlementdate", 5),
+        ("nem_unit_dispatch", "settlementdate", 5),
+        ("nem_interconnector_flow", "settlementdate", 5),
+        ("nem_rooftop_pv", "settlementdate", 30),
+        ("nem_predispatch_price", "interval_datetime", None),  # future-dated
+        ("nem_st_pasa", "interval_datetime", None),            # future-dated
+        ("nem_market_notice", "creation_date", None),          # event-driven
+        # WEM stores naive AWST (UTC+8, 2 h behind NEM) and publishes the
+        # reference price progressively through the day — judge it on a
+        # daily cadence, not 30-min, to avoid false staleness alarms.
+        ("wem_price", "interval_start", 480),
+    ]
+    try:
+        with locked_conn() as con:
+            for tbl, col, cadence in checks:
+                row = con.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
+                latest = row[0] if row else None
+                if latest is None:
+                    ages[tbl] = {"latest": None, "age_min": None, "stale": True}
+                    continue
+                latest_s = str(latest)[:19].replace("T", " ")
+                try:
+                    dt = datetime.strptime(latest_s, "%Y-%m-%d %H:%M:%S")
+                    age_min = round((nem_now - dt).total_seconds() / 60, 1)
+                except ValueError:
+                    age_min = None
+                stale = (cadence is not None and age_min is not None
+                         and age_min > cadence * 3 + 10)
+                ages[tbl] = {"latest": latest_s, "age_min": age_min, "stale": stale}
+    except Exception as e:
+        ages["error"] = str(e)
+
+    any_stale = any(isinstance(v, dict) and v.get("stale") for v in ages.values())
+    return {
+        "status": "degraded" if any_stale else "ok",
+        "scrapers": scheduler.status(),
+        "data_age": ages,
+    }
 
 
 def _latest_per_region_sql(extra_join: str = "") -> str:
@@ -81,6 +126,28 @@ def snapshot() -> dict:
         """).fetchall()
         prior_map = {r[0]: r[1] for r in prior_rows}
 
+        # Cumulative price per region — rolling sum of the last 2,016
+        # dispatch prices (NER cumulative price / CPT mechanism). Window
+        # pre-filtered to 8 days so ROW_NUMBER only ranks recent rows.
+        cum_rows = con.execute(
+            """
+            WITH recent AS (
+                SELECT regionid, rrp,
+                       ROW_NUMBER() OVER (PARTITION BY regionid
+                                          ORDER BY settlementdate DESC) AS rn
+                FROM nem_dispatch_price
+                WHERE settlementdate >= datetime(
+                    (SELECT MAX(settlementdate) FROM nem_dispatch_price),
+                    '-8 days')
+            )
+            SELECT regionid, SUM(rrp), COUNT(*)
+            FROM recent WHERE rn <= ?
+            GROUP BY regionid
+            """,
+            (CPT_INTERVALS,),
+        ).fetchall()
+        cum_map = {r[0]: {"sum": r[1] or 0.0, "n": r[2]} for r in cum_rows}
+
         # Next-interval AEMO forecast per region. Prefer P5MIN (5-min);
         # fall back to PREDISPATCH (30-min) if P5MIN hasn't published yet
         # for that interval. `latest_actual` is the cutoff so we always show
@@ -140,6 +207,15 @@ def snapshot() -> dict:
             "totaldemand": demand,
             "availablegeneration": avail_gen,
             "netinterchange": neti,
+            # NER cumulative-price mechanism: rolling 2,016-interval RRP sum
+            # vs the FY threshold. apc_active=True → $600 administered cap.
+            "cumulative_price": round(cum_map.get(rid, {}).get("sum", 0.0), 0),
+            "cpt_threshold": CPT_THRESHOLD_AUD,
+            "cpt_pct": round(cum_map.get(rid, {}).get("sum", 0.0)
+                             / CPT_THRESHOLD_AUD * 100, 1),
+            "cpt_intervals": cum_map.get(rid, {}).get("n", 0),
+            "apc_active": cum_map.get(rid, {}).get("sum", 0.0) >= CPT_THRESHOLD_AUD,
+            "apc_price": APC_PRICE_AUD,
         })
 
     wem = None
@@ -169,6 +245,7 @@ def _bucket_minutes_for(hours: int) -> int:
 
 
 @router.get("/history")
+@ttl_cache(30)
 def history(
     region: str = Query(..., description="NEM region (NSW1...) or 'WEM'"),
     hours: int = Query(24, ge=1, le=168),
@@ -246,6 +323,148 @@ def history(
             "demand": r[14],
         } for r in rows]
     return {"region": region.upper(), "series": series, "bucket_minutes": bucket_min}
+
+
+@router.get("/prices/day")
+def prices_day(
+    region: str = Query("NSW1", description="NEM region (NSW1…TAS1)"),
+    date: str = Query(..., description="NEM-time trading date, YYYY-MM-DD"),
+) -> dict:
+    """Full 5-minute price + demand series for one historical day.
+
+    Powers the date-picker history explorer. Returns whatever range the
+    local archive holds (backfill loads ~14 months); the frontend greys
+    out dates outside `available_from`..`available_to`.
+    """
+    rid = region.upper()
+    if rid not in NEM_REGIONS:
+        return {"region": rid, "date": date, "series": []}
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return {"region": rid, "date": date, "series": [], "error": "bad date"}
+
+    start = day.strftime("%Y-%m-%d 00:00:00")
+    end = (day + timedelta(days=1)).strftime("%Y-%m-%d 00:05:00")
+
+    with locked_conn() as con:
+        rows = con.execute(
+            """
+            SELECT p.settlementdate, p.rrp, s.totaldemand
+            FROM nem_dispatch_price p
+            LEFT JOIN nem_region_summary s
+                   ON s.settlementdate = p.settlementdate
+                  AND s.regionid = p.regionid
+            WHERE p.regionid = ? AND p.settlementdate > ? AND p.settlementdate <= ?
+            ORDER BY p.settlementdate
+            """,
+            (rid, start, end),
+        ).fetchall()
+        bounds = con.execute(
+            "SELECT MIN(settlementdate), MAX(settlementdate) FROM nem_dispatch_price"
+        ).fetchone()
+
+    series = [{"t": _iso(r[0]), "rrp": r[1], "demand": r[2]} for r in rows]
+    prices = [r[1] for r in rows if r[1] is not None]
+    stats = None
+    if prices:
+        stats = {
+            "max": max(prices), "min": min(prices),
+            "avg": sum(prices) / len(prices),
+            "spread": max(prices) - min(prices),
+            "neg_intervals": sum(1 for p in prices if p < 0),
+            "over300_intervals": sum(1 for p in prices if p > 300),
+        }
+
+    return {
+        "region": rid,
+        "date": date,
+        "series": series,
+        "stats": stats,
+        "available_from": _iso(bounds[0])[:10] if bounds and bounds[0] else None,
+        "available_to": _iso(bounds[1])[:10] if bounds and bounds[1] else None,
+    }
+
+
+@router.get("/prices/ohlc")
+@ttl_cache(60)
+def prices_ohlc(
+    region: str = Query("NSW1", description="NEM region (NSW1…TAS1)"),
+    hours: int = Query(24, ge=1, le=168),
+    bucket_minutes: int = Query(30, ge=5, le=240,
+                                description="Candle width in minutes"),
+) -> dict:
+    """OHLC candlestick data from raw 5-min dispatch prices.
+
+    Each candle covers `bucket_minutes` of dispatch intervals:
+      open  — first 5-min RRP in the bucket
+      high  — max RRP
+      low   — min RRP
+      close — last 5-min RRP (equivalent to the settlement price for the period)
+
+    Prices can be negative (excess renewables) or very high (gas peakers).
+    """
+    rid = region.upper()
+    if rid not in NEM_REGIONS:
+        return {"region": rid, "bucket_minutes": bucket_minutes, "series": []}
+
+    cutoff = (_nem_now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    bm = bucket_minutes
+
+    with locked_conn() as con:
+        rows = con.execute(
+            """
+            WITH bucketed AS (
+                SELECT
+                    rrp,
+                    settlementdate,
+                    /* floor epoch seconds to bucket boundary */
+                    (CAST(strftime('%s', settlementdate) AS INTEGER) / (:bm * 60))
+                        * (:bm * 60) AS bucket_sec
+                FROM nem_dispatch_price
+                WHERE regionid = :rid AND settlementdate >= :cutoff
+            ),
+            ranked AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (PARTITION BY bucket_sec ORDER BY settlementdate ASC)  AS rn_asc,
+                    ROW_NUMBER() OVER (PARTITION BY bucket_sec ORDER BY settlementdate DESC) AS rn_desc,
+                    COUNT(*) OVER (PARTITION BY bucket_sec) AS cnt
+                FROM bucketed
+            )
+            SELECT
+                bucket_sec,
+                MAX(CASE WHEN rn_asc  = 1 THEN rrp END) AS open,
+                MAX(rrp) AS high,
+                MIN(rrp) AS low,
+                MAX(CASE WHEN rn_desc = 1 THEN rrp END) AS close,
+                MAX(cnt)  AS count
+            FROM ranked
+            GROUP BY bucket_sec
+            HAVING open IS NOT NULL AND close IS NOT NULL
+            ORDER BY bucket_sec
+            """,
+            {"bm": bm, "rid": rid, "cutoff": cutoff},
+        ).fetchall()
+
+    series = []
+    for bucket_sec, open_, high, low, close, count in rows:
+        from datetime import timezone
+        t_dt = datetime.fromtimestamp(bucket_sec, tz=timezone.utc) + timedelta(hours=10)  # → NEM time
+        series.append({
+            "t":     t_dt.strftime("%Y-%m-%dT%H:%M"),
+            "open":  round(open_,  2),
+            "high":  round(high,   2),
+            "low":   round(low,    2),
+            "close": round(close,  2),
+            "count": count,
+        })
+
+    return {
+        "region": rid,
+        "bucket_minutes": bm,
+        "hours": hours,
+        "series": series,
+    }
 
 
 @router.get("/forecast")
@@ -337,6 +556,7 @@ def forecast(
 
 
 @router.get("/heatmap")
+@ttl_cache(600)
 def heatmap(
     days: int = Query(90, ge=7, le=180,
                       description="How many days back to include"),
@@ -496,6 +716,56 @@ def constraints(
         "constraints": out,
         "binding_intervals": intervals,
     }
+
+
+@router.get("/constraints/active")
+def constraints_active(
+    region: str = Query("NSW1",
+                         description="NEM region or 'ALL'"),
+) -> dict:
+    """Binding constraints in the most recent dispatch interval.
+
+    Used by the UI to show a real-time alert banner without fetching the full
+    6-hour window. Returns at most the last 2 settlement intervals to tolerate
+    the ~30-60 s lag between AEMO publishing and our ingestion."""
+    # Last 15 minutes in NEM time covers up to 3 dispatch intervals with slack.
+    cutoff = (_nem_now() - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+    with locked_conn() as con:
+        latest_ts = con.execute(
+            "SELECT MAX(settlementdate) FROM nem_dispatch_constraint WHERE settlementdate >= ?",
+            (cutoff,),
+        ).fetchone()[0]
+
+        if not latest_ts:
+            return {"region": region, "active": [], "as_at": None}
+
+        rows = con.execute(
+            """
+            SELECT settlementdate, constraintid, rhs, marginalvalue, violationdegree
+            FROM nem_dispatch_constraint
+            WHERE settlementdate = ?
+            ORDER BY ABS(marginalvalue) DESC
+            LIMIT 100
+            """,
+            (latest_ts,),
+        ).fetchall()
+
+    active = [
+        {
+            "settlementdate": _iso(r[0]),
+            "constraintid": r[1],
+            "rhs": r[2],
+            "marginalvalue": r[3],
+            "violationdegree": r[4],
+        }
+        for r in rows
+        if _constraint_matches_region(r[1], region)
+    ]
+    # Severity: 0=none, 1=binding (marginalvalue nonzero), 2=violated (violationdegree > 0)
+    severity = 0
+    if active:
+        severity = 2 if any(c["violationdegree"] and c["violationdegree"] > 0 for c in active) else 1
+    return {"region": region, "active": active, "as_at": _iso(latest_ts), "severity": severity}
 
 
 @router.get("/fcas/matrix")

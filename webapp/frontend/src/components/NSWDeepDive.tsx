@@ -11,9 +11,12 @@ import {
 import { BidForm } from './BidForm'
 import { PositionCard } from './PositionCard'
 import { BidLedger } from './BidLedger'
+import { PaperAnalyticsPanel } from './PaperAnalyticsPanel'
 import { SuggestedBids } from './SuggestedBids'
 import { MarketTimeline } from './MarketTimeline'
 import { FuelMixLive } from './FuelMixLive'
+import { BESSDispatchPanel } from './BESSDispatchPanel'
+import { BESSLeaderboard } from './BESSLeaderboard'
 import { useT } from '../i18n'
 
 // ---- NSW projection ------------------------------------------------------
@@ -32,7 +35,7 @@ const FOCUS_REGION = 'NSW1'
 const FOCUS_STATE_NAME = 'New South Wales'
 const NEIGHBOURS = new Set(['Queensland', 'Victoria', 'South Australia',
                             'Australian Capital Territory'])
-const DEFAULT_BESS_DUID = 'RYAN1'
+const DEFAULT_BESS_DUID = 'WTAHB1'
 
 // Default centre+zoom for the NSW view. Used to "reset" the zoom and as
 // the initial ZoomableGroup state. Centre is slightly east of the state's
@@ -85,14 +88,15 @@ function tFuel(t: (k: string, ...args: (string | number)[]) => string, f: Fuel):
 // strings centred on (0,0) scaled to radius r.
 type ShapeFn = (r: number) => string
 const FUEL_SHAPE: Record<Fuel, ShapeFn> = {
-  coal_black:  circlePath,   // thermal = solid circle
-  coal_brown:  circlePath,
-  gas:         circlePath,
-  bioenergy:   circlePath,
-  hydro:       triangleDown, // ▽ — flowing water reservoir
-  wind:        circlePath,   // ● — turbine "rotor"
-  solar:       diamondPath,  // ◆ — panel tilt
-  battery:     squarePath,   // ■ — cell rack
+  coal_black:    circlePath,   // thermal = solid circle
+  coal_brown:    circlePath,
+  gas:           circlePath,
+  bioenergy:     circlePath,
+  hydro:         triangleDown, // ▽ — flowing water reservoir
+  wind:          circlePath,   // ● — turbine "rotor"
+  solar:         diamondPath,  // ◆ — panel tilt
+  rooftop_solar: diamondPath,  // ◆ — same panel silhouette, golden colour
+  battery:       squarePath,   // ■ — cell rack
 }
 function circlePath(r: number): string {
   return `M ${-r} 0 A ${r} ${r} 0 1 0 ${r} 0 A ${r} ${r} 0 1 0 ${-r} 0 Z`
@@ -227,7 +231,7 @@ export function NSWDeepDive({ snap, generators, grid }: Props) {
     [generators],
   )
 
-  // Find the user's headline BESS (RYAN1 by default). We look it up by DUID
+  // Find the headline BESS (WTAHB1 — Waratah Super Battery — by default).
   // inside any station's units (a station can have multiple DUIDs).
   const headlineBess = useMemo(() => {
     if (!generators) return null
@@ -236,7 +240,7 @@ export function NSWDeepDive({ snap, generators, grid }: Props) {
       const u = s.units.find((u) => u.duid === DEFAULT_BESS_DUID)
       if (u) return { station: s, unit: u }
     }
-    // Fall back to any NSW battery if RYAN1 not found.
+    // Fall back to any NSW battery if WTAHB1 not found.
     const any = nswStations.find((s) => s.fuel === 'battery')
     if (any && any.units[0]) return { station: any, unit: any.units[0] }
     return null
@@ -949,10 +953,22 @@ export function NSWDeepDive({ snap, generators, grid }: Props) {
         />
       </aside>
 
+      {/* ============================ BESS DISPATCH (full width) ============= */}
+      <div className="lg:col-span-2">
+        <BESSDispatchPanel duid={DEFAULT_BESS_DUID} region={FOCUS_REGION} />
+      </div>
+
+      {/* ============================ BESS LEADERBOARD (full width) ========== */}
+      {/* Real per-DUID arbitrage league table — context for how the paper
+          account's strategy stacks up against actual operators. */}
+      <section className="lg:col-span-2 bg-surface rounded-xl2 p-6 shadow-card">
+        <BESSLeaderboard defaultRegion={FOCUS_REGION} />
+      </section>
+
       {/* ============================ MARKET TIMELINE (full width) =========== */}
       {/* Sits directly above Suggested bids so the user has the lifecycle
           context — "what stage is the next interval in?" — right next to
-          where they're choosing which proposals to submit. RYAN1 is the
+          where they’re choosing which proposals to submit. WTAHB1 is the
           paper-trading DUID so the "Your DUID" overlay tracks the same
           unit the bid sheet acts on. */}
       <section className="lg:col-span-2 bg-surface rounded-xl2 p-6 shadow-card">
@@ -964,7 +980,7 @@ export function NSWDeepDive({ snap, generators, grid }: Props) {
             {t('sec.timelineHint')}
           </div>
         </div>
-        <MarketTimeline duid="RYAN1" />
+        <MarketTimeline duid="WTAHB1" />
       </section>
 
       {/* ============================ SUGGESTED BIDS (full width) ============= */}
@@ -977,6 +993,14 @@ export function NSWDeepDive({ snap, generators, grid }: Props) {
           refreshKey={snap?.generated_at}
           onSubmitted={refreshPaper}
         />
+      </div>
+
+      {/* ============================ ANALYTICS (full width) ================== */}
+      <div className="lg:col-span-2">
+        <div className="rounded-2xl border border-border bg-surface p-4">
+          <h3 className="text-[13px] font-semibold text-ink mb-3">{t('pa.title')}</h3>
+          <PaperAnalyticsPanel duid={DEFAULT_BESS_DUID} refreshKey={snap?.generated_at} />
+        </div>
       </div>
 
       {/* ============================ LEDGER (full width) ===================== */}

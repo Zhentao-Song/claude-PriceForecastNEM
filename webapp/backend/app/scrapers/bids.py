@@ -32,6 +32,7 @@ import asyncio
 import csv
 import io
 import logging
+import os
 import re
 import zipfile
 from datetime import datetime, timedelta
@@ -52,7 +53,7 @@ from ..config import (
     NEM_NEXT_DAY_OFFER_FCAS_DIR,
     USER_AGENT,
 )
-from ..db import locked_conn
+from ..db import write_conn
 from .mms import parse_mms_csv
 from .nem import get_last_file, set_state
 
@@ -255,8 +256,7 @@ _BIDDAY_SQL = """
          daily_energy_constraint, t1, t2, t3, t4, minimumload,
          submitted_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(settlementdate, duid, bidtype) DO UPDATE SET
-        direction = excluded.direction,
+    ON CONFLICT(settlementdate, duid, bidtype, direction) DO UPDATE SET
         entrytype = excluded.entrytype,
         priceband1 = excluded.priceband1, priceband2 = excluded.priceband2,
         priceband3 = excluded.priceband3, priceband4 = excluded.priceband4,
@@ -272,14 +272,16 @@ _BIDDAY_SQL = """
 
 
 def _upsert_bidday(payload: list[tuple]) -> int:
+    import time as _time
     if not payload:
         return 0
     # Chunk so we release the SQLite write lock between batches — keeps
     # /api/* responsive even when ingesting a 100k-row SPARSE file.
     for i in range(0, len(payload), UPSERT_BATCH):
         chunk = payload[i:i + UPSERT_BATCH]
-        with locked_conn() as con:
+        with write_conn() as con:
             con.executemany(_BIDDAY_SQL, chunk)
+        _time.sleep(0.02)  # let queued readers grab the lock between batches
     return len(payload)
 
 
@@ -305,23 +307,45 @@ def _parse_bidper_rows(
         idt = _parse_dt(r.get("INTERVAL_DATETIME", ""))
         sd = _parse_dt(r.get("SETTLEMENTDATE", "") or r.get("EFFECTIVEDATE", ""))
         periodid = _to_int(r.get("PERIODID", ""))
-        if idt is None and sd is not None and periodid is not None:
-            # PERIODID 1 = 00:30 (end-of-interval convention).
-            idt = sd + timedelta(minutes=30 * periodid)
-        if idt is None:
+
+        # Next_Day_Offer_*_SPARSE (BIDS_BIDOFFERPERIOD_SPARSE): one row covers
+        # the period range PERIODID..PERIODIDTO of TRADINGDATE. 5MS periods:
+        # PERIODID 1 = the 5-min interval ending 04:05 on the trading date
+        # (NEM trading day runs 04:05 → 04:00 next day, 288 periods).
+        trading_date = _parse_dt(r.get("TRADINGDATE", ""))
+        period_to = _to_int(r.get("PERIODIDTO", "")) or periodid
+
+        idts: list[datetime]
+        if idt is not None:
+            idts = [idt]
+        elif trading_date is not None and periodid is not None:
+            lo = max(1, periodid)
+            hi = min(288, max(period_to or lo, lo))
+            idts = [trading_date + timedelta(hours=4, minutes=5 * p)
+                    for p in range(lo, hi + 1)]
+        elif sd is not None and periodid is not None:
+            # Legacy 30-min convention: PERIODID 1 = 00:30.
+            idts = [sd + timedelta(minutes=30 * periodid)]
+        else:
             continue
         duid = (r.get("DUID", "") or "").strip().strip('"')
         bidtype = _norm_bidtype(r.get("BIDTYPE", ""))
         if not duid or not bidtype:
             continue
+        # GEN = sell/discharge offer, LOAD = buy/charge bid. FCAS bidtypes
+        # imply direction; ENERGY rows carry an explicit DIRECTION column
+        # for IESS bidirectional units (older feeds: blank → NULL).
+        direction = _direction_from_bidtype(bidtype) or (
+            (r.get("DIRECTION", "") or "").strip().strip('"').upper() or None
+        )
         submitted_at = (
             _parse_dt(r.get("LASTCHANGED", "")
+                      or r.get("OFFERDATETIME", "")
                       or r.get("OFFERDATE", "")
                       or r.get("AUTHORISEDDATE", ""))
             or datetime.utcnow()
         )
-        out.append((
-            idt, duid, bidtype,
+        bands_and_meta = (
             _to_float(r.get("BANDAVAIL1", "")), _to_float(r.get("BANDAVAIL2", "")),
             _to_float(r.get("BANDAVAIL3", "")), _to_float(r.get("BANDAVAIL4", "")),
             _to_float(r.get("BANDAVAIL5", "")), _to_float(r.get("BANDAVAIL6", "")),
@@ -335,52 +359,121 @@ def _parse_bidper_rows(
             (r.get("REBIDREASON", "") or r.get("REBID_REASON", "") or "").strip().strip('"') or None,
             (r.get("REBIDEXPLANATION", "") or r.get("REBID_EXPLANATION", "") or "").strip().strip('"') or None,
             default_version,
-        ))
+        )
+        for one_idt in idts:
+            out.append((one_idt, duid, bidtype, direction, *bands_and_meta))
     return out
 
 
 _BIDPER_SQL = """
     INSERT OR IGNORE INTO nem_bidper_offer
-        (interval_datetime, duid, bidtype,
+        (interval_datetime, duid, bidtype, direction,
          bandavail1, bandavail2, bandavail3, bandavail4, bandavail5,
          bandavail6, bandavail7, bandavail8, bandavail9, bandavail10,
          maxavail, fixedload, rampuprate, rampdownrate,
          submitted_at, rebid_reason, rebid_explanation, version)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 """
 
 
 def _upsert_bidper(payload: list[tuple]) -> int:
     if not payload:
         return 0
-    for i in range(0, len(payload), UPSERT_BATCH):
+    import time as _time
+    for n, i in enumerate(range(0, len(payload), UPSERT_BATCH), start=1):
         chunk = payload[i:i + UPSERT_BATCH]
-        with locked_conn() as con:
+        with write_conn() as con:
             con.executemany(_BIDPER_SQL, chunk)
+            # Checkpoint the WAL periodically DURING a big ingest so it can't
+            # balloon to GB (which previously wedged the writer). PASSIVE =
+            # non-blocking; it folds committed pages back into the main DB.
+            if n % 40 == 0:
+                con.execute("PRAGMA wal_checkpoint(PASSIVE);")
+        _time.sleep(0.02)  # let other writers/checkpoints interleave
     return len(payload)
+
+
+def _checkpoint_wal() -> None:
+    """TRUNCATE the WAL after an ingest so it returns to ~0 bytes. Keeps the
+    file from growing across runs; safe no-op when the WAL is already small."""
+    try:
+        with write_conn() as con:
+            con.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+    except Exception:
+        log.exception("wal checkpoint failed")
 
 
 # ---- File processors ----------------------------------------------------
 
+def _stream_upsert_bidper(zip_bytes: bytes, default_version: int) -> int:
+    """Stream BIDPEROFFER rows straight from the zip into chunked upserts,
+    WITHOUT ever materialising the whole table. A day-ahead SPARSE file expands
+    to >1.5M rows; building that list used ~6.5 GB and OOM-killed the process.
+    Here we convert + upsert in UPSERT_BATCH-sized chunks, so peak memory is
+    one batch (tens of MB)."""
+    import time as _time
+    buf: list[tuple] = []
+    total = chunk_no = 0
+    schema: list[str] | None = None
+
+    def _flush() -> None:
+        nonlocal buf, total, chunk_no
+        if not buf:
+            return
+        chunk_no += 1
+        with write_conn() as con:
+            con.executemany(_BIDPER_SQL, buf)
+            # Periodic non-blocking checkpoint so the WAL can't balloon to GB.
+            if chunk_no % 40 == 0:
+                con.execute("PRAGMA wal_checkpoint(PASSIVE);")
+        total += len(buf)
+        buf = []
+        _time.sleep(0.02)  # let readers/other writers interleave
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        name = next((n for n in zf.namelist() if n.lower().endswith(".csv")), None)
+        if not name:
+            return 0
+        with zf.open(name) as fh:
+            text = io.TextIOWrapper(fh, encoding="utf-8", errors="replace", newline="")
+            for row in csv.reader(text):
+                if not row:
+                    continue
+                if row[0] == "I" and len(row) >= 5:
+                    if f"{row[1]}_{row[2]}" in _BIDPER_TABLE_NAMES:
+                        schema = row[4:]
+                elif row[0] == "D" and schema is not None and len(row) >= 5:
+                    if f"{row[1]}_{row[2]}" not in _BIDPER_TABLE_NAMES:
+                        continue
+                    values = row[4:]
+                    if len(values) < len(schema):
+                        values = values + [""] * (len(schema) - len(values))
+                    r = dict(zip(schema, values))
+                    buf.extend(_parse_bidper_rows([r], default_version=default_version))
+                    if len(buf) >= UPSERT_BATCH:
+                        _flush()
+    _flush()
+    return total
+
+
 def _parse_and_upsert(zip_bytes: bytes, *, default_version: int,
                       ingest_per: bool = True) -> tuple[int, int]:
-    """Stream-decode the zip + filter + upsert in one worker thread call."""
+    """Decode the zip + upsert in one worker-thread call. BIDDAYOFFER is small
+    so it's materialised; BIDPEROFFER is STREAMED (chunked) to cap memory."""
     import time
     t0 = time.monotonic()
-    bidday_rows, bidper_rows = _stream_extract_tables(
-        zip_bytes, want_bidday=True, want_bidper=ingest_per,
+    bidday_rows, _ = _stream_extract_tables(
+        zip_bytes, want_bidday=True, want_bidper=False,
     )
-    log.info("bids parse: %d bidday + %d bidper rows in %.1fs (zip %d KB)",
-             len(bidday_rows), len(bidper_rows), time.monotonic()-t0,
-             len(zip_bytes) // 1024)
-    t1 = time.monotonic()
     n_day = _upsert_bidday(_parse_bidday_rows(bidday_rows))
-    log.info("bids parse: upsert_bidday %d rows in %.1fs", n_day, time.monotonic()-t1)
+    log.info("bids parse: %d bidday rows upserted in %.1fs (zip %d KB)",
+             n_day, time.monotonic()-t0, len(zip_bytes) // 1024)
     n_per = 0
-    if ingest_per and bidper_rows:
+    if ingest_per:
         t2 = time.monotonic()
-        n_per = _upsert_bidper(_parse_bidper_rows(bidper_rows, default_version=default_version))
-        log.info("bids parse: upsert_bidper %d rows in %.1fs", n_per, time.monotonic()-t2)
+        n_per = _stream_upsert_bidper(zip_bytes, default_version)
+        log.info("bids parse: streamed upsert_bidper %d rows in %.1fs",
+                 n_per, time.monotonic()-t2)
     return n_day, n_per
 
 
@@ -397,21 +490,93 @@ async def _process_one(client: httpx.AsyncClient, base_url: str, fn: str,
 
 # ---- Pruning ------------------------------------------------------------
 
+# How many days of bid history to keep. DEFAULT = keep EVERYTHING (no
+# deletion) — set BIDS_RETENTION_DAYS to a positive number to enable bounded
+# retention. Pruning is OFF by default so historical bids are never lost.
+def _retention_days() -> int:
+    try:
+        return int(os.getenv("BIDS_RETENTION_DAYS", "0").strip() or "0")
+    except ValueError:
+        return 0
+
+# Delete in small batches so a one-off large prune can never hold the global DB
+# lock (or block the worker) for more than one short transaction at a time.
+_PRUNE_BATCH = 20000
+
+
 def _prune_stale() -> int:
-    """Keep 14 days of bid history. Past that, BIDDAYOFFER prices stop
-    being useful (you already have the cleared price + outcomes), and the
-    table grows fast — every DUID × 11 markets × 48 intervals per day."""
-    cutoff = (datetime.utcnow() + timedelta(hours=10) - timedelta(days=14)).strftime(
+    """Optional retention. Disabled by default (BIDS_RETENTION_DAYS<=0 → keep
+    all history). When enabled, delete rows older than the cutoff in bounded
+    batches so it never stalls the single async worker. SAFE: run via a thread
+    from run_once(); never deletes anything unless retention is explicitly set."""
+    days = _retention_days()
+    if days <= 0:
+        return 0  # keep everything — no deletion
+    cutoff = (datetime.utcnow() + timedelta(hours=10) - timedelta(days=days)).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
-    with locked_conn() as con:
-        c1 = con.execute(
-            "DELETE FROM nem_bidper_offer WHERE interval_datetime < ?", (cutoff,)
-        )
-        c2 = con.execute(
-            "DELETE FROM nem_bidday_offer WHERE settlementdate < ?", (cutoff,)
-        )
-    return (c1.rowcount or 0) + (c2.rowcount or 0)
+    removed = 0
+    for table, col in (("nem_bidper_offer", "interval_datetime"),
+                       ("nem_bidday_offer", "settlementdate")):
+        while True:
+            with write_conn() as con:
+                c = con.execute(
+                    f"DELETE FROM {table} WHERE rowid IN "
+                    f"(SELECT rowid FROM {table} WHERE {col} < ? LIMIT ?)",
+                    (cutoff, _PRUNE_BATCH),
+                )
+                n = c.rowcount or 0
+            removed += n
+            if n < _PRUNE_BATCH:
+                break
+    return removed
+
+
+# How many days of BIDPEROFFER to keep in the small "hot" live table. Older
+# rows are MOVED (copied, then removed) into nem_bidper_offer_archive — never
+# deleted — so the live table stays small and the daily ingest stays fast while
+# all history is preserved. Set BIDS_HOT_DAYS=0 to disable rolling.
+def _hot_days() -> int:
+    # Default 0 = rolling DISABLED (single nem_bidper_offer table, no hot/archive
+    # split). Set BIDS_HOT_DAYS>0 only if you deliberately re-introduce the split.
+    try:
+        return int(os.getenv("BIDS_HOT_DAYS", "0").strip() or "0")
+    except ValueError:
+        return 0
+
+
+def _roll_to_archive() -> int:
+    """Move BIDPEROFFER rows older than BIDS_HOT_DAYS from the hot table to the
+    archive (copy first, then delete the same rows — nothing is lost). Batched
+    via the single writer; the archive is unindexed so appends are cheap. Keeps
+    the live table small so the daily 1.27M-row ingest never bogs down."""
+    days = _hot_days()
+    if days <= 0:
+        return 0
+    cutoff = (datetime.utcnow() + timedelta(hours=10) - timedelta(days=days)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    moved = 0
+    while True:
+        with write_conn() as con:
+            ids = [r[0] for r in con.execute(
+                "SELECT rowid FROM nem_bidper_offer WHERE interval_datetime < ? LIMIT ?",
+                (cutoff, _PRUNE_BATCH),
+            )]
+            if not ids:
+                break
+            ph = ",".join("?" * len(ids))
+            con.execute(
+                f"INSERT INTO nem_bidper_offer_archive "
+                f"SELECT * FROM nem_bidper_offer WHERE rowid IN ({ph})", ids,
+            )
+            con.execute(
+                f"DELETE FROM nem_bidper_offer WHERE rowid IN ({ph})", ids,
+            )
+            moved += len(ids)
+        if len(ids) < _PRUNE_BATCH:
+            break
+    return moved
 
 
 # ---- Public entry point -------------------------------------------------
@@ -432,13 +597,15 @@ async def run_once() -> dict:
     # rebid, not the day-ahead submission).
     # Per feed: (state_key, url, regex, result_key, default_version,
     #            max_files_per_tick, ingest_bidper)
-    # Day-ahead SPARSE files are huge (~40MB compressed, ~200MB CSV) and
-    # carry BIDPEROFFER rows for every DUID × 48 intervals. Bidmove_Complete
-    # the next day re-publishes the SAME data plus rebid history, so we save
-    # ourselves the work and only take the small BIDDAYOFFER table here.
+    # ENERGY day-ahead: ingest the SPARSE per-period table too — it is the
+    # ONLY source of the *current* trading day's availabilities (Bidmove
+    # republishes them D+1, i.e. always a day late for the bid-ladder view).
+    # Sparse rows expand to ~200k dense 5-min rows/day for energy — fine.
+    # FCAS day-ahead per-period stays off: 10 bid types would add ~1.5M
+    # rows/day for panels nobody inspects intraday; Bidmove fills FCAS D+1.
     feeds = [
         ("nem_next_day_offer_energy", NEM_NEXT_DAY_OFFER_ENERGY_DIR,
-         RE_NEXT_DAY_ENERGY, "next_day_energy", 1, 1, False),
+         RE_NEXT_DAY_ENERGY, "next_day_energy", 1, 1, True),
         ("nem_next_day_offer_fcas",   NEM_NEXT_DAY_OFFER_FCAS_DIR,
          RE_NEXT_DAY_FCAS,   "next_day_fcas",   1, 1, False),
         ("nem_bidmove_complete",      NEM_BIDMOVE_COMPLETE_DIR,
@@ -482,8 +649,21 @@ async def run_once() -> dict:
                 result[result_key] = {"error": str(e)}
 
     try:
-        result["pruned"] = _prune_stale()
+        # Move old hot rows into the archive (keeps the live table small/fast).
+        # Off the event loop + batched; copies before deleting, so nothing is
+        # lost — all history stays in nem_bidper_offer_archive.
+        result["rolled"] = await asyncio.to_thread(_roll_to_archive)
+    except Exception:
+        log.exception("bid roll-to-archive failed")
+
+    try:
+        # Optional hard delete (BIDS_RETENTION_DAYS>0). Disabled by default →
+        # deletes nothing. Off the event loop + batched.
+        result["pruned"] = await asyncio.to_thread(_prune_stale)
     except Exception:
         log.exception("bid prune failed")
+
+    # Shrink the WAL after the (potentially large) ingest. Off the event loop.
+    await asyncio.to_thread(_checkpoint_wal)
 
     return result

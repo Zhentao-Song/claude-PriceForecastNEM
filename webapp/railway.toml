@@ -1,0 +1,20 @@
+# railway.toml — root directory for this service is webapp/
+# In the Railway UI, set "Root Directory" → webapp
+# Railway will then read this file and resolve all paths relative to webapp/
+
+[build]
+# Dockerfile path is relative to the root directory (webapp/)
+dockerfilePath = "Dockerfile.production"
+
+[deploy]
+# honcho runs two processes (see backend/Procfile): web (uvicorn, RUN_SCHEDULER=0)
+# + scheduler (app.run_scheduler), so scraper writes can't freeze the API.
+startCommand = "honcho start"
+healthcheckPath = "/api/snapshot"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[[volumes]]
+# Persist the SQLite database across deploys and container restarts
+mountPath = "/app/data"

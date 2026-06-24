@@ -77,8 +77,8 @@ training:
   batch_size: 64
   learning_rate: 0.0001
   weight_decay: 0.0001
-  max_epochs: 100
-  early_stopping_patience: 10
+  max_epochs: 10          # quick validation run; change to 100+ for production
+  early_stopping_patience: 5
 
   # Train/val/test split
   val_ratio: 0.1

@@ -26,7 +26,7 @@ from datetime import datetime
 import httpx
 
 from ..config import HTTP_TIMEOUT, USER_AGENT, WEMDE_REFTRADINGPRICE_DIR
-from ..db import locked_conn
+from ..db import write_conn
 
 log = logging.getLogger("scraper.wem")
 
@@ -67,7 +67,7 @@ def parse_and_upsert(payload: dict) -> int:
         insert.append((ts, float(rtp), None))
     if not insert:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         con.executemany(
             """
             INSERT INTO wem_price VALUES (?, ?, ?)

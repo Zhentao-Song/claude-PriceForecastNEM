@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import Iterable
 
 from .config import NEM_REGIONS
-from .db import locked_conn
+from .db import write_conn
 from .static.generators import GENERATORS_BY_DUID
 
 log = logging.getLogger("paper")
@@ -321,6 +321,7 @@ def submit_bid(
     notes: str | None = None,
     *,
     replaces_bid_id: int | None = None,
+    fcas_trapezium: dict | None = None,
 ) -> dict:
     """Submit a new bid (price-taker).
 
@@ -351,7 +352,7 @@ def submit_bid(
     # no longer rebid into in real markets.
     _check_gate_closure(target_iso, action="submit")
 
-    with locked_conn() as con:
+    with write_conn() as con:
         # Reject targets in the past or already-settled.
         existing = con.execute(
             "SELECT 1 FROM nem_dispatch_price WHERE settlementdate = ? AND regionid = ? LIMIT 1",
@@ -401,17 +402,18 @@ def submit_bid(
                 (replaces_bid_id,),
             )
 
+        trap_json = json.dumps(fcas_trapezium) if fcas_trapezium else None
         cur = con.execute(
             """
             INSERT INTO paper_bid
                 (duid, target_settlementdate, market, direction, submitted_at,
-                 status, bands_json, notes, previous_bid_id)
-            VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+                 status, bands_json, notes, previous_bid_id, fcas_trapezium_json)
+            VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
             """,
             (
                 duid, target_iso, market, direction,
                 now_nem().strftime("%Y-%m-%d %H:%M:%S"),
-                json.dumps(bands), notes, replaces_bid_id,
+                json.dumps(bands), notes, replaces_bid_id, trap_json,
             ),
         )
         return {
@@ -424,7 +426,8 @@ def submit_bid(
 def list_bids(duid: str | None = None, limit: int = 100) -> list[dict]:
     sql = """
         SELECT bid_id, duid, target_settlementdate, market, direction,
-               submitted_at, status, bands_json, notes, previous_bid_id
+               submitted_at, status, bands_json, notes, previous_bid_id,
+               fcas_trapezium_json
         FROM paper_bid
     """
     args: list = []
@@ -433,13 +436,14 @@ def list_bids(duid: str | None = None, limit: int = 100) -> list[dict]:
         args.append(duid.upper())
     sql += " ORDER BY bid_id DESC LIMIT ?"
     args.append(limit)
-    with locked_conn() as con:
+    with write_conn() as con:
         rows = con.execute(sql, args).fetchall()
     return [{
         "bid_id": r[0], "duid": r[1], "target_settlementdate": _iso(r[2]),
         "market": r[3], "direction": r[4], "submitted_at": _iso(r[5]),
         "status": r[6], "bands": json.loads(r[7]), "notes": r[8],
         "previous_bid_id": r[9],
+        "fcas_trapezium": json.loads(r[10]) if r[10] else None,
     } for r in rows]
 
 
@@ -455,7 +459,7 @@ def list_fills(duid: str | None = None, limit: int = 100) -> list[dict]:
         args.append(duid.upper())
     sql += " ORDER BY fill_id DESC LIMIT ?"
     args.append(limit)
-    with locked_conn() as con:
+    with write_conn() as con:
         rows = con.execute(sql, args).fetchall()
     return [{
         "fill_id": r[0], "bid_id": r[1], "duid": r[2],
@@ -466,7 +470,7 @@ def list_fills(duid: str | None = None, limit: int = 100) -> list[dict]:
 
 
 def cancel_bid(bid_id: int) -> dict:
-    with locked_conn() as con:
+    with write_conn() as con:
         row = con.execute(
             "SELECT target_settlementdate, status FROM paper_bid WHERE bid_id = ?",
             (bid_id,),
@@ -490,7 +494,7 @@ def cancel_bid(bid_id: int) -> dict:
 
 
 def get_state(duid: str) -> dict | None:
-    with locked_conn() as con:
+    with write_conn() as con:
         s = _bess_state(con, duid.upper())
         if not s:
             return None
@@ -514,9 +518,112 @@ def get_state(duid: str) -> dict | None:
     return s
 
 
-def reset_state(duid: str = "RYAN1") -> dict:
+def analytics(duid: str) -> dict:
+    """Aggregate paper-trading performance: daily P&L, cumulative curve, summary stats.
+
+    Returns
+    -------
+    {
+      "daily": [{"day", "energy_pnl", "fcas_pnl", "total_pnl", "cumulative",
+                 "n_fills", "win_rate"}, ...],
+      "stats": {"total_pnl", "pnl_7d", "pnl_30d", "annualized_aud",
+                "n_fills", "win_rate", "first_fill", "last_fill", "trading_days"}
+    }
+    """
+    duid_up = duid.upper()
+    with write_conn() as con:
+        daily_rows = con.execute(
+            """
+            SELECT
+                DATE(settlementdate)                                              AS day,
+                COALESCE(SUM(CASE WHEN market='ENERGY' THEN revenue_aud ELSE 0 END), 0) AS energy_pnl,
+                COALESCE(SUM(CASE WHEN market!='ENERGY' THEN revenue_aud ELSE 0 END), 0) AS fcas_pnl,
+                COALESCE(SUM(revenue_aud), 0)                                    AS total_pnl,
+                COUNT(*)                                                          AS n_fills,
+                COALESCE(SUM(CASE WHEN revenue_aud > 0 THEN 1 ELSE 0 END), 0)   AS n_wins
+            FROM paper_fill
+            WHERE duid = ?
+            GROUP BY DATE(settlementdate)
+            ORDER BY day
+            """,
+            (duid_up,),
+        ).fetchall()
+
+        all_row = con.execute(
+            """
+            SELECT
+                COALESCE(SUM(revenue_aud), 0),
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN revenue_aud > 0 THEN 1 ELSE 0 END), 0),
+                MIN(settlementdate),
+                MAX(settlementdate)
+            FROM paper_fill WHERE duid = ?
+            """,
+            (duid_up,),
+        ).fetchone()
+
+        cutoff_7d  = (now_nem() - timedelta(days=7) ).strftime("%Y-%m-%d")
+        cutoff_30d = (now_nem() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        pnl_7d  = con.execute(
+            "SELECT COALESCE(SUM(revenue_aud),0) FROM paper_fill WHERE duid=? AND settlementdate>=?",
+            (duid_up, cutoff_7d),
+        ).fetchone()[0]
+
+        pnl_30d = con.execute(
+            "SELECT COALESCE(SUM(revenue_aud),0) FROM paper_fill WHERE duid=? AND settlementdate>=?",
+            (duid_up, cutoff_30d),
+        ).fetchone()[0]
+
+    # Build daily list with running cumulative
+    daily: list[dict] = []
+    cum = 0.0
+    for day, e_pnl, f_pnl, total, n_fills, n_wins in daily_rows:
+        cum += total
+        daily.append({
+            "day":        day,
+            "energy_pnl": round(e_pnl, 2),
+            "fcas_pnl":   round(f_pnl, 2),
+            "total_pnl":  round(total, 2),
+            "cumulative": round(cum, 2),
+            "n_fills":    n_fills,
+            "win_rate":   round(n_wins / n_fills * 100, 1) if n_fills else 0.0,
+        })
+
+    total_pnl, n_fills, n_wins, first_fill, last_fill = all_row
+    total_pnl = round(float(total_pnl), 2)
+
+    # Annualised: project total over elapsed trading days
+    trading_days = 1
+    if first_fill and last_fill and first_fill != last_fill:
+        try:
+            d0 = datetime.fromisoformat(first_fill[:10])
+            d1 = datetime.fromisoformat(last_fill[:10])
+            trading_days = max(1, (d1 - d0).days)
+        except Exception:
+            pass
+
+    annualized = round(total_pnl / trading_days * 365, 2) if trading_days else 0.0
+
+    return {
+        "daily": daily,
+        "stats": {
+            "total_pnl":      total_pnl,
+            "pnl_7d":         round(float(pnl_7d),  2),
+            "pnl_30d":        round(float(pnl_30d), 2),
+            "annualized_aud": annualized,
+            "n_fills":        n_fills,
+            "win_rate":       round(n_wins / n_fills * 100, 1) if n_fills else 0.0,
+            "first_fill":     first_fill,
+            "last_fill":      last_fill,
+            "trading_days":   trading_days,
+        },
+    }
+
+
+def reset_state(duid: str = "WTAHB1") -> dict:
     """Wipe bids/fills, reset SoC to 50%. Demo convenience."""
-    with locked_conn() as con:
+    with write_conn() as con:
         con.execute("DELETE FROM paper_fill WHERE duid = ?", (duid,))
         con.execute("DELETE FROM paper_bid WHERE duid = ?", (duid,))
         con.execute(
@@ -715,7 +822,7 @@ def settle_pending() -> dict:
     already SETTLED is skipped, so re-running is a no-op.
     """
     counts: dict[str, int] = {}
-    with locked_conn() as con:
+    with write_conn() as con:
         duids = [r[0] for r in con.execute(
             "SELECT duid FROM paper_bess_state"
         ).fetchall()]

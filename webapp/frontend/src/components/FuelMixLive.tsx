@@ -8,14 +8,16 @@ import { useT } from '../i18n'
 // chosen so each tank LOOKS like its source without needing extra data.
 const FUEL_VIBE: Record<Fuel, { waveAmp: number; waveSpeed: number;
                                 bubbleRate: number; bubbleSpeed: number }> = {
-  coal_black:  { waveAmp: 0.6, waveSpeed: 0.25, bubbleRate: 0.02, bubbleSpeed: 0.4 },
-  coal_brown:  { waveAmp: 0.6, waveSpeed: 0.25, bubbleRate: 0.02, bubbleSpeed: 0.4 },
-  gas:         { waveAmp: 1.2, waveSpeed: 0.45, bubbleRate: 0.06, bubbleSpeed: 0.7 },
-  hydro:       { waveAmp: 1.8, waveSpeed: 0.65, bubbleRate: 0.10, bubbleSpeed: 0.9 },
-  bioenergy:   { waveAmp: 1.0, waveSpeed: 0.40, bubbleRate: 0.05, bubbleSpeed: 0.6 },
-  wind:        { waveAmp: 3.2, waveSpeed: 0.90, bubbleRate: 0.14, bubbleSpeed: 1.1 },
-  solar:       { waveAmp: 2.4, waveSpeed: 1.10, bubbleRate: 0.18, bubbleSpeed: 1.3 },
-  battery:     { waveAmp: 4.5, waveSpeed: 1.30, bubbleRate: 0.22, bubbleSpeed: 1.6 },
+  coal_black:    { waveAmp: 0.6, waveSpeed: 0.25, bubbleRate: 0.02, bubbleSpeed: 0.4 },
+  coal_brown:    { waveAmp: 0.6, waveSpeed: 0.25, bubbleRate: 0.02, bubbleSpeed: 0.4 },
+  gas:           { waveAmp: 1.2, waveSpeed: 0.45, bubbleRate: 0.06, bubbleSpeed: 0.7 },
+  hydro:         { waveAmp: 1.8, waveSpeed: 0.65, bubbleRate: 0.10, bubbleSpeed: 0.9 },
+  bioenergy:     { waveAmp: 1.0, waveSpeed: 0.40, bubbleRate: 0.05, bubbleSpeed: 0.6 },
+  wind:          { waveAmp: 3.2, waveSpeed: 0.90, bubbleRate: 0.14, bubbleSpeed: 1.1 },
+  solar:         { waveAmp: 2.4, waveSpeed: 1.10, bubbleRate: 0.18, bubbleSpeed: 1.3 },
+  // Rooftop PV bursts on/off with the sun — fast lively wave, strong sparkle
+  rooftop_solar: { waveAmp: 2.8, waveSpeed: 1.20, bubbleRate: 0.20, bubbleSpeed: 1.4 },
+  battery:       { waveAmp: 4.5, waveSpeed: 1.30, bubbleRate: 0.22, bubbleSpeed: 1.6 },
 }
 
 type Props = {
@@ -25,6 +27,13 @@ type Props = {
   hours?: number
   /** Refresh cadence in ms. Default 60s — matches the NEM tick rate. */
   refreshMs?: number
+  /**
+   * 'stacked'  (default) — tanks full-width 6-col on top, trends below.
+   *            Used by NSW deep-dive.
+   * 'inline'   — tanks compact 3-col on the left, trends on the right.
+   *            Used by NEM map panel.
+   */
+  layout?: 'stacked' | 'inline'
 }
 
 type HistRow = { t: string } & Record<string, number | string>
@@ -34,15 +43,17 @@ type HistResponse = {
   bucket_minutes: number
   fuels: Fuel[]
   fuel_colors: Record<string, string>
+  /** Nameplate installed capacity per fuel (MW). Absent for rooftop_solar. */
+  fuel_capacity_mw?: Record<string, number>
   series: HistRow[]
 }
 
 // Fuel order — heavy/baseload at the bottom of the stack, intermittent on
-// top. Matches the existing FuelMixCard convention so the user gets a
-// consistent reading order everywhere.
+// top. rooftop_solar sits next to utility solar so the two PV categories
+// read as a pair in the stacked bar / tank grid.
 const STACK_ORDER: Fuel[] = [
   'coal_black', 'coal_brown', 'gas', 'hydro',
-  'bioenergy', 'wind', 'solar', 'battery',
+  'bioenergy', 'wind', 'solar', 'rooftop_solar', 'battery',
 ]
 
 const FUEL_LABEL_KEY = (f: Fuel) => `fuel.${f}`
@@ -61,7 +72,7 @@ const FUEL_LABEL_KEY = (f: Fuel) => `fuel.${f}`
  * Data: pulls /api/grid/generators/history every `refreshMs`, which joins
  * NEMWEB SCADA against the curated DUID→fuel registry server-side.
  */
-export function FuelMixLive({ region = 'NSW1', hours = 6, refreshMs = 60000 }: Props) {
+export function FuelMixLive({ region = 'NSW1', hours = 6, refreshMs = 60000, layout = 'stacked' }: Props) {
   const { t, lang } = useT()
   const [data, setData] = useState<HistResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -205,41 +216,68 @@ export function FuelMixLive({ region = 'NSW1', hours = 6, refreshMs = 60000 }: P
         </div>
       </div>
 
-      {/* Liquid-tanks row — one tank per fuel. Each fills to its current
-          MW relative to its OWN 6-hour max (window-relative), with a
-          wavy surface + rising bubbles whose character matches the
-          fuel's personality (coal calm, solar bursty, etc.). */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 pt-1">
-        {fuels.map((f) => (
-          <LiquidTank
-            key={f}
-            fuel={f}
-            color={colors[f] ?? '#86868b'}
-            label={t(FUEL_LABEL_KEY(f))}
-            stats={fuelStats[f]}
-          />
-        ))}
-      </div>
-
-      {/* Per-fuel 6-hour trend strip — one tiny sparkline row per fuel
-          showing the MW trajectory across the window. Complements the
-          "now" tanks above with "how we got here". Fills the visual
-          space below the tanks so the left column doesn't end short. */}
-      <div className="pt-4 mt-3 border-t border-hairlineSoft">
-        <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-2.5">
-          {t('fuelmix.trends')}
+      {layout === 'inline' ? (
+        /* ── inline layout: tanks left 48%, trends right ── */
+        <div className="flex gap-5 pt-1 items-start">
+          <div className="grid grid-cols-3 gap-2.5 shrink-0 w-[48%]">
+            {fuels.map((f) => (
+              <LiquidTank
+                key={f} fuel={f}
+                color={colors[f] ?? '#86868b'}
+                label={t(FUEL_LABEL_KEY(f))}
+                stats={fuelStats[f]}
+                capacityMw={data?.fuel_capacity_mw?.[f]}
+                compact
+              />
+            ))}
+          </div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-2">
+              {t('fuelmix.trends')}
+            </div>
+            <div className="space-y-1.5">
+              {fuels.map((f) => (
+                <FuelTrendRow
+                  key={f}
+                  color={colors[f] ?? '#86868b'}
+                  label={t(FUEL_LABEL_KEY(f))}
+                  stats={fuelStats[f]}
+                />
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="space-y-1.5">
-          {fuels.map((f) => (
-            <FuelTrendRow
-              key={f}
-              color={colors[f] ?? '#86868b'}
-              label={t(FUEL_LABEL_KEY(f))}
-              stats={fuelStats[f]}
-            />
-          ))}
-        </div>
-      </div>
+      ) : (
+        /* ── stacked layout (default): tanks full-width, trends below ── */
+        <>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 pt-1">
+            {fuels.map((f) => (
+              <LiquidTank
+                key={f} fuel={f}
+                color={colors[f] ?? '#86868b'}
+                label={t(FUEL_LABEL_KEY(f))}
+                stats={fuelStats[f]}
+                capacityMw={data?.fuel_capacity_mw?.[f]}
+              />
+            ))}
+          </div>
+          <div className="pt-4 mt-3 border-t border-hairlineSoft">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted mb-2.5">
+              {t('fuelmix.trends')}
+            </div>
+            <div className="space-y-1.5">
+              {fuels.map((f) => (
+                <FuelTrendRow
+                  key={f}
+                  color={colors[f] ?? '#86868b'}
+                  label={t(FUEL_LABEL_KEY(f))}
+                  stats={fuelStats[f]}
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -318,18 +356,18 @@ function FuelTrendRow({ color, label, stats }: {
 // LiquidTank — single fuel's animated "aquarium column"
 // =========================================================================
 
-function LiquidTank({ fuel, color, label, stats }: {
+function LiquidTank({ fuel, color, label, stats, capacityMw, compact = false }: {
   fuel: Fuel
   color: string
   label: string
   stats: { now: number; max: number; min: number; samples: number[] } | undefined
+  /** Installed nameplate capacity (MW). When provided, shows utilisation %. */
+  capacityMw?: number
+  compact?: boolean
 }) {
+  const { t } = useT()
   const vibe = FUEL_VIBE[fuel]
-  // Tank viewbox — the MW number is rendered ABOVE the SVG in the parent
-  // grid row, so the SVG itself can be a clean tank shape without internal
-  // text padding. Slight top inset gives the wave a tiny bit of headroom
-  // so it never clips at peak.
-  const W = 100, H = 140
+  const W = 100, H = compact ? 100 : 140
   const padX = 6, padTop = 6, padBottom = 6
   const innerW = W - padX * 2
   const innerH = H - padTop - padBottom
@@ -426,17 +464,20 @@ function LiquidTank({ fuel, color, label, stats }: {
     : now >= 1 ? `${now.toFixed(0)} MW`
     : '—'
 
+  // Utilisation: current MW / nameplate capacity × 100.
+  // Clamp to 110% to handle brief over-generation (frequency events, etc.)
+  const utilPct = (capacityMw && capacityMw > 0 && now >= 1)
+    ? Math.min(110, Math.round((now / capacityMw) * 100))
+    : null
+
   // Light + dark shades of the fuel color for the gradient fill
   const lightCol = hexA(color, 0.55)
   const darkCol = hexA(color, 0.95)
   const gradId = `liquid-${fuel}`
 
   return (
-    // Rigid 3-row grid: MW label · tank SVG · fuel label. Fixed row heights
-    // mean every column lines up pixel-perfect at top AND bottom regardless
-    // of label length / SVG aspect-ratio whitespace.
     <div className="grid items-center justify-items-center"
-         style={{ gridTemplateRows: '18px 140px 22px' }}>
+         style={{ gridTemplateRows: `18px ${H}px 30px` }}>
       <div className="text-[11px] font-semibold text-ink tabular-nums leading-none self-end">
         {fmtNow}
       </div>
@@ -481,10 +522,21 @@ function LiquidTank({ fuel, color, label, stats }: {
         <rect x={padX} y={padTop} width={innerW} height={innerH} rx={6}
               fill={`url(#glass-${fuel})`} pointerEvents="none" />
       </svg>
-      <div className="flex items-center gap-1.5 text-[11px] text-ink2 leading-none">
-        <span className="inline-block w-2 h-2 rounded-sm"
-              style={{ background: color }} />
-        {label}
+      <div className="flex flex-col items-center gap-0.5">
+        <div className="flex items-center gap-1.5 text-[11px] text-ink2 leading-none">
+          <span className="inline-block w-2 h-2 rounded-sm shrink-0"
+                style={{ background: color }} />
+          <span className="truncate">{label}</span>
+        </div>
+        {utilPct !== null ? (
+          <div className="text-[10px] tabular-nums font-medium leading-none"
+               style={{ color: hexA(color, 0.85) }}>
+            {utilPct}{t('fuel.capacityUtil')}
+          </div>
+        ) : (
+          /* Reserve space so tanks stay aligned whether or not % is shown */
+          <div className="text-[10px] leading-none text-transparent select-none">·</div>
+        )}
       </div>
     </div>
   )

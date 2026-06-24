@@ -28,7 +28,7 @@ from typing import Callable
 import httpx
 
 from ..config import HTTP_TIMEOUT, NEMWEB_BASE, USER_AGENT
-from ..db import locked_conn
+from ..db import write_conn
 from .mms import parse_mms_csv
 from .nem import (
     set_state, upsert_dispatch_constraint, upsert_interconnector_flow,
@@ -55,7 +55,7 @@ def _intervals_for_day(d: date) -> tuple[str, str]:
 
 def _row_count_for_day(d: date) -> int:
     start, end = _intervals_for_day(d)
-    with locked_conn() as con:
+    with write_conn() as con:
         row = con.execute(
             "SELECT COUNT(*) FROM nem_dispatch_price "
             "WHERE settlementdate >= ? AND settlementdate < ?",
@@ -224,7 +224,7 @@ def _months_missing(lookback_days: int = 400) -> list[tuple[int, int]]:
     """Return (year, month) pairs not yet covered in the DB."""
     cutoff = (datetime.utcnow() + timedelta(hours=10)).date() - timedelta(days=lookback_days)
 
-    with locked_conn() as con:
+    with write_conn() as con:
         rows = con.execute(
             """
             SELECT substr(settlementdate,1,7) as ym,

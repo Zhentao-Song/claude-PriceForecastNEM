@@ -33,7 +33,7 @@ from ..config import (
     NEM_REGIONS,
     USER_AGENT,
 )
-from ..db import locked_conn
+from ..db import write_conn
 from .mms import parse_mms_csv
 from .nem import get_last_file, set_state
 
@@ -96,7 +96,7 @@ def _extract_csv(zip_bytes: bytes) -> str:
 def _upsert(payload: list[tuple], source: str) -> int:
     if not payload:
         return 0
-    with locked_conn() as con:
+    with write_conn() as con:
         # Only overwrite if the incoming run_datetime is fresher than what's
         # already stored — keeps the table monotonic w.r.t. forecast vintage.
         con.executemany(
@@ -254,7 +254,7 @@ def _prune_stale() -> int:
     cutoff = (datetime.utcnow() + timedelta(hours=10) - timedelta(days=8)).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
-    with locked_conn() as con:
+    with write_conn() as con:
         cur = con.execute(
             "DELETE FROM nem_predispatch_price WHERE interval_datetime < ?",
             (cutoff,),

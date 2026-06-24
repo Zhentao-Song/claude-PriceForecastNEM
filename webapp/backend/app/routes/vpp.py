@@ -642,6 +642,146 @@ def _check_customer_contract_limits(
 
 # ---- Endpoints ------------------------------------------------------------
 
+@router.get("/competitors")
+def vpp_competitors() -> dict:
+    """Real VPPs / DER aggregators / WDR units registered with AEMO, plus
+    the FCAS markets each one actually bids.
+
+    Sources: nem_facility_registry (weekly MMSDM PARTICIPANT_REGISTRATION
+    scrape) name-matched for VPP/aggregator patterns + the WDR 'DR…' DUID
+    prefix, joined against nem_bidday_offer for live bidding activity.
+    Bid volumes are AEMO D+1 disclosure — same data ez2view charges for.
+    Units that are registered but have never bid in our 14-day window are
+    dropped (dormant registrations would just be noise)."""
+    with locked_conn() as con:
+        units = con.execute(
+            """
+            SELECT duid, station, region, dispatch_type, schedule_type
+            FROM nem_facility_registry
+            WHERE UPPER(station) LIKE '%VPP%'
+               OR UPPER(station) LIKE '%VIRTUAL%'
+               OR UPPER(station) LIKE '%AGGREG%'
+               OR UPPER(station) LIKE '%RESPONSE%'
+               -- WDR units carry the DR… prefix; fuel IS NULL excludes
+               -- coincidental matches like DRYCGT* (Dry Creek gas turbines).
+               OR (duid LIKE 'DR%' AND fuel IS NULL)
+            ORDER BY station
+            """
+        ).fetchall()
+        duids = [u[0] for u in units]
+        markets: dict[str, list[str]] = {}
+        latest_day: dict[str, str] = {}
+        if duids:
+            ph = ",".join(["?"] * len(duids))
+            for d, bt, mx in con.execute(
+                f"""
+                SELECT duid, bidtype, MAX(date(settlementdate))
+                FROM nem_bidday_offer
+                WHERE duid IN ({ph})
+                GROUP BY duid, bidtype
+                """,
+                duids,
+            ).fetchall():
+                markets.setdefault(d, []).append(bt)
+                if mx:
+                    latest_day[d] = max(latest_day.get(d, ""), mx)
+
+    out = []
+    for duid, station, region, dispatch_type, schedule_type in units:
+        mkts = sorted(markets.get(duid, []))
+        if not mkts:
+            continue
+        out.append({
+            "duid": duid,
+            "station": station,
+            "region": region,
+            "dispatch_type": dispatch_type,
+            "schedule_type": schedule_type,
+            "markets": mkts,
+            "latest_bid_day": latest_day.get(duid),
+        })
+    return {"units": out, "count": len(out)}
+
+
+@router.get("/competitors/{duid}/summary")
+def vpp_competitor_summary(duid: str) -> dict:
+    """Per-market profile of one registered VPP/aggregator.
+
+    For each FCAS market the unit bids: the latest BIDDAYOFFER price ladder
+    and the peak MAXAVAIL seen in BIDPEROFFER over the last 7 days — the
+    best public proxy for the aggregated fleet's real usable capacity
+    (DUDETAIL registered capacity is a 1 MW placeholder for these units).
+    No SCADA exists for non-scheduled aggregations, so there is no output
+    chart — bids ARE the visible footprint."""
+    duid = duid.upper()
+    with locked_conn() as con:
+        meta = con.execute(
+            """
+            SELECT station, region, dispatch_type, schedule_type, capacity_mw
+            FROM nem_facility_registry WHERE duid = ?
+            """,
+            (duid,),
+        ).fetchone()
+        if meta is None:
+            raise HTTPException(404, f"unknown DUID {duid}")
+
+        day_rows = con.execute(
+            """
+            SELECT b.bidtype, b.direction, date(b.settlementdate), b.submitted_at,
+                   b.priceband1, b.priceband2, b.priceband3, b.priceband4,
+                   b.priceband5, b.priceband6, b.priceband7, b.priceband8,
+                   b.priceband9, b.priceband10
+            FROM nem_bidday_offer b
+            JOIN (
+                SELECT bidtype, MAX(settlementdate) AS mx
+                FROM nem_bidday_offer WHERE duid = ?
+                GROUP BY bidtype
+            ) m ON m.bidtype = b.bidtype AND m.mx = b.settlementdate
+            WHERE b.duid = ?
+            """,
+            (duid, duid),
+        ).fetchall()
+
+        avail_rows = con.execute(
+            """
+            SELECT bidtype, MAX(maxavail)
+            FROM nem_bidper_offer
+            WHERE duid = ?
+              AND interval_datetime >= datetime('now', '+10 hours', '-7 days')
+            GROUP BY bidtype
+            """,
+            (duid,),
+        ).fetchall()
+
+    max_avail = {r[0]: r[1] for r in avail_rows}
+    markets = []
+    for r in day_rows:
+        prices = [r[i] for i in range(4, 14)]
+        markets.append({
+            "bidtype": r[0],
+            "direction": r[1],
+            "latest_day": r[2],
+            "submitted_at": (r[3].isoformat() if isinstance(r[3], datetime)
+                             else str(r[3]) if r[3] else None),
+            "max_avail_mw": max_avail.get(r[0]),
+            "price_min": min((p for p in prices if p is not None), default=None),
+            "price_max": max((p for p in prices if p is not None), default=None),
+        })
+    markets.sort(key=lambda m: m["bidtype"])
+
+    fleet_mw = max((m["max_avail_mw"] or 0) for m in markets) if markets else 0
+    return {
+        "duid": duid,
+        "station": meta[0],
+        "region": meta[1],
+        "dispatch_type": meta[2],
+        "schedule_type": meta[3],
+        "registered_capacity_mw": meta[4],
+        "fleet_max_avail_mw": fleet_mw,
+        "markets": markets,
+    }
+
+
 @router.get("/state")
 def state(portfolio_id: str = Query("NSW_CI_VPP")) -> dict:
     """Portfolio summary + per-resource live state. Drives the UI."""

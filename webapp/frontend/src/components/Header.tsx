@@ -14,16 +14,12 @@ export function Header({ generatedAt, live }: Props) {
   return (
     <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-hairlineSoft">
       <div className="max-w-[1400px] mx-auto px-8 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center">
-            <span className="text-white text-sm font-semibold leading-none">⚡</span>
-          </div>
-          <div>
-            <div className="text-[15px] font-semibold tracking-tight text-ink leading-none">
-              {t('header.title')}
-            </div>
-            <div className="text-[11px] text-muted mt-1">{t('header.subtitle')}</div>
-          </div>
+        <div className="flex items-center">
+          <img
+            src="/startye-logo.png"
+            alt="StarTye 星星太乙"
+            style={{ height: 36, width: 'auto', display: 'block' }}
+          />
         </div>
         <div className="flex items-center gap-5 text-[12px]">
           <span className="text-muted tabular-nums">

@@ -20,42 +20,50 @@ type TooltipState = {
   mean: number | null
 } | null
 
-// Endpoints of the sequential colormap.
-//   low end  → muted grey  (close to the canvas tone so cheap days fade out)
-//   high end → saturated orange (the app accent colour, fully opaque)
-const RAMP_LOW = [200, 200, 205] as const   // light grey
-const RAMP_HIGH = [255, 149, 0] as const    // accent orange
+// ── Mean-relative divergent colour scale ─────────────────────────────────────
+//  · value within ±5 % of row mean  →  white  (neutral / "average day")
+//  · value above neutral zone       →  white → deep orange-red  (#c2410c)
+//  · value below neutral zone       →  white → dark slate grey  (#334155)
+//
+// Above-mean uses log₁₀ scale (electricity prices span 3+ orders of magnitude;
+// log keeps the gradient legible for a $200 day vs a $14,900 spike day).
+// Below-mean uses a linear scale anchored at $0 (negative prices → full grey).
 
-/** Log-scale position of `v` within [lo, hi], clamped to [0,1].
- *  Electricity prices span 3+ orders of magnitude — a $14,900 APC day next to
- *  a $50 quiet day would crush the dynamic range under linear scaling, leaving
- *  almost every cell looking identical. log10 makes the gradient legible. */
-function logRatio(v: number, lo: number, hi: number): number {
-  if (hi <= lo) return 0.5
-  const lv = Math.log10(Math.max(v, 1))
-  const llo = Math.log10(Math.max(lo, 1))
-  const lhi = Math.log10(Math.max(hi, 1))
-  return Math.max(0, Math.min(1, (lv - llo) / (lhi - llo)))
+/** white → deep orange-red rgb(194, 65, 12) = #c2410c */
+function aboveMeanCss(t: number): string {
+  return `rgb(${Math.round(255 - t * 61)},${Math.round(255 - t * 190)},${Math.round(255 - t * 243)})`
 }
 
-/** Blend grey → orange and ramp opacity together so the brightest cells also
- *  feel more solid. Pure RGB lerp; no gamma correction (good enough at this
- *  cell size — the eye can't tell). */
-function rampCss(t: number): string {
-  const r = Math.round(RAMP_LOW[0] + (RAMP_HIGH[0] - RAMP_LOW[0]) * t)
-  const g = Math.round(RAMP_LOW[1] + (RAMP_HIGH[1] - RAMP_LOW[1]) * t)
-  const b = Math.round(RAMP_LOW[2] + (RAMP_HIGH[2] - RAMP_LOW[2]) * t)
-  // Cheap days stay washed-out (alpha 0.25), expensive days reach full opacity.
-  const alpha = 0.25 + t * 0.75
-  return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`
+/** white → dark slate rgb(51, 65, 85) = #334155 */
+function belowMeanCss(t: number): string {
+  return `rgb(${Math.round(255 - t * 204)},${Math.round(255 - t * 190)},${Math.round(255 - t * 170)})`
 }
 
-/** Per-cell colour. No data = empty hairline. Otherwise: log-scaled position
- *  on the grey→orange ramp. Higher price = darker / more saturated. */
-function cellStyle(v: number | null, bounds: Bounds): CSSProperties {
+/** Per-cell colour.
+ *  No data → empty hairline.
+ *  Has data → divergent scale centred on the row mean (±5 % neutral band). */
+function cellStyle(v: number | null, bounds: Bounds, mean: number | null): CSSProperties {
   if (v === null) return { background: '#f5f5f7' }
-  const t = logRatio(v, bounds.lo, bounds.hi)
-  return { background: rampCss(t) }
+
+  // If mean is unavailable fall back to a simple mid-point reference.
+  const m = (mean != null && mean > 0) ? mean : Math.sqrt(Math.max(bounds.lo, 1) * Math.max(bounds.hi, 1))
+  const lo = m * 0.95
+  const hi = m * 1.05
+
+  // Neutral band → white
+  if (v >= lo && v <= hi) return { background: '#ffffff' }
+
+  if (v > hi) {
+    // Log-scale distance above the neutral ceiling, relative to global max.
+    const logAbove = Math.log10(Math.max(v, hi + 0.01)) - Math.log10(Math.max(hi, 1))
+    const logMax   = Math.max(Math.log10(Math.max(bounds.hi, hi + 0.01)) - Math.log10(Math.max(hi, 1)), 0.001)
+    return { background: aboveMeanCss(Math.min(1, logAbove / logMax)) }
+  }
+
+  // Below neutral: linear scale from lo down to $0 (negative prices → full grey).
+  if (v <= 0) return { background: belowMeanCss(1) }
+  const frac = Math.min(1, Math.max(0, (lo - v) / Math.max(lo, 0.01)))
+  return { background: belowMeanCss(frac) }
 }
 
 function fmtDay(s: string): string {
@@ -75,11 +83,6 @@ function fmtDayLong(s: string, lang: string): string {
   })
 }
 
-/** Compact dollar formatter for legend ticks: $48, $1.2k, $14k. */
-function fmtPrice(v: number): string {
-  if (v >= 1000) return `$${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`
-  return `$${Math.round(v)}`
-}
 
 function meanFor(r: HeatmapRegion, metric: Metric): number | null {
   return metric === 'energy' ? r.rrp_mean : r.raisereg_mean
@@ -149,7 +152,7 @@ function Grid({
                       className="rounded-[2px] cursor-pointer"
                       style={{
                         width: 10, height: 18, minWidth: 10,
-                        ...cellStyle(v, bounds),
+                        ...cellStyle(v, bounds, mean),
                       }}
                       onMouseEnter={(e) => onCellEnter(e, day, label, v, mean)}
                       onMouseMove={onCellMove}
@@ -185,23 +188,24 @@ function Grid({
   )
 }
 
-/** Continuous gradient legend. CSS linear-gradient walks the same RGB lerp
- *  the cells use (just sampled at 11 stops to match the log perception),
- *  with min/max tick labels under each end. */
-function RampLegend({ bounds, label }: { bounds: Bounds; label: string }) {
-  // 11 stops at evenly spaced t = 0.0, 0.1, … 1.0 gives a smooth ramp even
-  // though the underlying scale is log — the gradient is drawn in
-  // ramp-position space, not value space.
-  const stops = Array.from({ length: 11 }, (_, i) => rampCss(i / 10)).join(', ')
+/** Divergent legend: dark-slate → white → deep-orange, matching cellStyle. */
+function DivergentLegend({ label, lang }: { label: string; lang: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-[11px] text-muted whitespace-nowrap">{label}</span>
-      <span className="text-[10px] text-muted tabular-nums">{fmtPrice(bounds.lo)}</span>
-      <span
-        className="inline-block rounded-[2px]"
-        style={{ width: 120, height: 10, background: `linear-gradient(to right, ${stops})` }}
-      />
-      <span className="text-[10px] text-muted tabular-nums">{fmtPrice(bounds.hi)}</span>
+      {/* Below-mean half: dark slate → white */}
+      <div style={{
+        width: 52, height: 8, borderRadius: '3px 0 0 3px',
+        background: 'linear-gradient(to right, #334155, #ffffff)',
+      }} />
+      {/* Above-mean half: white → deep orange-red */}
+      <div style={{
+        width: 52, height: 8, borderRadius: '0 3px 3px 0',
+        background: 'linear-gradient(to right, #ffffff, #c2410c)',
+      }} />
+      <span className="text-[10px] text-muted">
+        {lang === 'zh' ? '白色 = 均值 ±5%' : 'white = avg ±5%'}
+      </span>
     </div>
   )
 }
@@ -311,10 +315,10 @@ export function HeatMap({ data }: { data: Heatmap | null }) {
         <Grid data={data} metric="fcas" bounds={fcasBounds} t={t}
               onCellEnter={handleEnterFor('fcas')} onCellMove={handleMove} />
       </div>
-      {/* Legend: one continuous ramp per metric, plus the no-data swatch. */}
+      {/* Legend: divergent ramp per metric (mean-relative) + no-data swatch */}
       <div className="flex items-center gap-5 flex-wrap">
-        <RampLegend bounds={energyBounds} label={t('heatmap.legend.energyRamp')} />
-        <RampLegend bounds={fcasBounds} label={t('heatmap.legend.fcasRamp')} />
+        <DivergentLegend label={t('heatmap.legend.energyRamp')} lang={lang} />
+        <DivergentLegend label={t('heatmap.legend.fcasRamp')} lang={lang} />
         <div className="flex items-center gap-1 text-[11px] text-muted">
           <span className="inline-block rounded-[2px] border border-hairlineSoft" style={{ width: 12, height: 12, background: '#f5f5f7' }} />
           {t('heatmap.legend.nodata')}

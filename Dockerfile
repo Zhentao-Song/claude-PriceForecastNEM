@@ -15,15 +15,25 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY webapp/backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt aiofiles
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 
 COPY webapp/backend/app ./app
 COPY --from=frontend /frontend/dist ./static
+
+# Procfile: honcho runs the API (web) + scraper (scheduler) as TWO processes so
+# a heavy scraper write can never freeze the API (they share the SQLite volume
+# via WAL: API reads, scheduler writes).
+COPY webapp/backend/Procfile ./Procfile
+
+# SQLite database directory (mount a Railway volume here for persistence).
+RUN mkdir -p /app/data
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Railway injects $PORT; fall back to 8000 for local docker run
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Two processes via honcho (see Procfile): web (uvicorn, RUN_SCHEDULER=0) +
+# scheduler (app.run_scheduler). If either exits, honcho stops → Railway
+# restarts the container (pairs with the scheduler watchdog for self-healing).
+CMD ["honcho", "start"]

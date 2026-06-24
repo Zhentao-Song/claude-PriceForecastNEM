@@ -1,0 +1,158 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>项目全貌</title><style>@page{margin:1.6cm}body{font-family:-apple-system,'PingFang SC','Hiragino Sans GB',sans-serif;max-width:860px;margin:0 auto;padding:0 20px;color:#1d1d1f;line-height:1.6;font-size:13px}
+h1{font-size:24px;border-bottom:3px solid #0a84ff;padding-bottom:8px;margin-top:28px}
+h2{font-size:18px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;color:#0a4d8c}
+h3{font-size:15px;margin-top:18px;color:#333}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:12px;page-break-inside:avoid}
+th{background:#f0f4f8;border:1px solid #ccd;padding:6px 9px;text-align:left}
+td{border:1px solid #ddd;padding:5px 9px;vertical-align:top}
+code{background:#f3f3f5;padding:2px 5px;border-radius:4px;font-size:11px;color:#c0392b}
+pre{background:#1d1d1f;color:#e0e0e0;padding:12px;border-radius:8px;overflow-x:auto;font-size:11px;line-height:1.4}
+blockquote{border-left:3px solid #0a84ff;margin:12px 0;padding:4px 14px;background:#f7faff;color:#555}
+hr{border:none;border-top:1px solid #e0e0e0;margin:20px 0}
+ul{margin:8px 0;padding-left:22px}li{margin:3px 0}strong{color:#000}</style></head><body><h1>NEM/WEM 电力市场数据平台 · 项目全貌</h1>
+<blockquote>面向澳洲国家电力市场（NEM）与西澳市场（WEM）的实时数据监控与交易分析平台。</blockquote>
+<blockquote>本文档面向技术经理与产品经理，涵盖产品定位、功能模块、技术架构与全部数据接口。</blockquote>
+<hr>
+<h2>一、产品定位</h2>
+<p>面向澳洲电力市场的<strong>实时数据监控与交易分析平台</strong>，对标 ez2view / OpenNEM / Modo Energy 等专业终端。</p>
+<p>核心能力：实时行情、发电监控、储能（BESS）与虚拟电厂（VPP）分析、竞价对标、模拟交易。</p>
+<ul>
+<li>数据全部来自<strong>公开免费</strong>官方源，无需付费授权</li>
+<li>全站<strong>中英双语</strong></li>
+<li>移动端待适配</li>
+</ul>
+<hr>
+<h2>二、功能模块（产品视角）— 6 个顶级页面</h2>
+<table><thead><tr><th>页面</th><th>核心功能</th></tr></thead><tbody><tr><td><strong>NEM</strong> 总览</td><td>五区域实时电价/需求 KPI、地理地图（机组 + 联络线潮流 + MLF 热图）、燃料组合实时图、价格走势（含 K 线图、AEMO 预测、CPT 累积价格）、历史任意日查询、FCAS 矩阵、90 天热力图、天气关联、14 天充裕度预测（PASA）</td></tr><tr><td><strong>BESS</strong> 储能</td><td>电池调度面板、模拟交易（Waratah 真实电池）、AEMO 竞价生命周期、智能建议报价、收益榜单（58 家真实电池排名）、合规记分卡</td></tr><tr><td><strong>VPP</strong> 虚拟电厂</td><td>投资组合管理、资源（EV/电池）调度、基线/分成/动态包络建模、同行 VPP 报价对标（AGL/ShineHub/EnelX 等 61 家真实聚合商）</td></tr><tr><td><strong>BESS-Calc</strong> 测算器</td><td>储能项目财务建模（LCOS/IRR/NPV/回收期）、历史回测、敏感性分析</td></tr><tr><td><strong>Stations</strong> 电站透视</td><td>全部 ~712 台机组档案：实时出力、MLF、排放强度、当日收益估算、出力×价格图、真实竞价带（买卖双向）</td></tr><tr><td><strong>News</strong> 资讯</td><td>澳洲能源新闻聚合（4 家媒体 RSS，带原文链接）+ AEMO 官方公告流</td></tr></tbody></table>
+<hr>
+<h2>三、技术架构（技术视角）</h2>
+<pre>
+前端  React 18 + TypeScript 5 + Vite 5 + TailwindCSS + Recharts + d3-geo
+      32 个组件，路由级懒加载，SSE 实时推送
+        │  (REST + SSE, /api/*，共 67 个端点)
+后端  FastAPI + Uvicorn + APScheduler + httpx
+      11 个后台爬虫（定时调度），内存 TTL 缓存
+        │
+存储  SQLite (WAL 模式)，15 张表，约 4200 万行
+部署  Docker 多阶段构建 + docker-compose（本地）/ Railway（生产）
+</pre>
+<p><strong>后端核心模块</strong>：</p>
+<p><code>scheduler</code>（调度）· <code>db</code>（存储/迁移）· <code>registry</code>（元数据合并）·</p>
+<p><code>paper</code> + <code>vpp_settle</code> + <code>vpp_telemetry</code>（模拟交易引擎）·</p>
+<p><code>bess_finance</code> + <code>bess_backtest</code>（财务模型）· <code>cache</code>（缓存）</p>
+<p><strong>技术栈版本</strong>：React 18.3 · TypeScript 5.5 · Vite 5.3 · TailwindCSS 3.4 · Recharts 2.12 · d3-geo 3.1 / FastAPI ≥0.110 · Uvicorn ≥0.27 · APScheduler ≥3.10 · httpx ≥0.27</p>
+<hr>
+<h2>四、数据接口详细说明</h2>
+<blockquote>全部公开免费，无需 API Key。轮询基准 <code>POLL_INTERVAL_SECONDS = 60s</code>。</blockquote>
+<h3>1. AEMO NEMWeb · 调度出清 DispatchIS</h3>
+<ul>
+<li><strong>URL</strong>：<code>https://nemweb.com.au/Reports/Current/DispatchIS_Reports/</code></li>
+<li><strong>格式</strong>：ZIP→CSV（AEMO MMS 格式），文件名 <code>PUBLIC_DISPATCHIS_YYYYMMDDHHMM_*.zip</code></li>
+<li><strong>AEMO 发布</strong>：每 5 分钟 · <strong>本系统抓取</strong>：每 60 秒</li>
+<li><strong>解析 4 张 MMS 表 → 4 张库表</strong>：</li>
+</ul>
+<table><thead><tr><th>MMS 表</th><th>抽取字段</th><th>入库表</th></tr></thead><tbody><tr><td><code>DISPATCH_PRICE</code></td><td>RRP + 9 个 FCAS 价（RAISE/LOWER × 6SEC/60SEC/5MIN/REG/1SEC）</td><td><code>nem_dispatch_price</code>（63 万行，14 个月）</td></tr><tr><td><code>DISPATCH_REGIONSUM</code></td><td>TOTALDEMAND、可用发电、净联络线</td><td><code>nem_region_summary</code>（17 万）</td></tr><tr><td><code>DISPATCH_INTERCONNECTORRES</code></td><td>潮流 MW、进出口限额</td><td><code>nem_interconnector_flow</code>（20 万）</td></tr><tr><td><code>DISPATCH_CONSTRAINT</code></td><td>约束 ID、边际值、是否绑定</td><td><code>nem_dispatch_constraint</code>（16 万）</td></tr></tbody></table>
+<ul>
+<li><strong>用途</strong>：首页 KPI、价格图、地图潮流、热力图、CPT 累积价格、约束叠加</li>
+</ul>
+<h3>2. AEMO NEMWeb · 机组遥测 Dispatch_SCADA</h3>
+<ul>
+<li><strong>URL</strong>：<code>.../Reports/Current/Dispatch_SCADA/</code> · <code>PUBLIC_DISPATCHSCADA_*.zip</code></li>
+<li><strong>发布</strong> 5 分钟 · <strong>抓取</strong> 60 秒</li>
+<li><strong>MMS 表</strong> <code>DISPATCH_UNIT_SCADA</code> → 抽 <code>DUID</code> + <code>SCADAVALUE</code> → <code>nem_unit_dispatch</code>（192 万行，全部 ~510 台机组）</li>
+<li><strong>用途</strong>：燃料组合实时图、电站透视出力曲线、BESS 收益榜</li>
+</ul>
+<h3>3. AEMO NEMWeb · 5 分钟预测 P5MIN + 预调度 PREDISPATCHIS</h3>
+<ul>
+<li><strong>URL</strong>：<code>.../P5_Reports/</code>（<code>PUBLIC_P5MIN_*</code>）、<code>.../PredispatchIS_Reports/</code>（<code>PUBLIC_PREDISPATCHIS_*</code>）</li>
+<li><strong>发布</strong>：P5MIN 5 分钟 / PREDISPATCH 30 分钟 · <strong>抓取</strong> 5 分钟</li>
+<li>抽 <code>INTERVAL_DATETIME</code>、<code>RUN_DATETIME</code>、<code>RRP</code>、<code>TOTALDEMAND</code> + FCAS → <code>nem_predispatch_price</code></li>
+<li><strong>覆盖</strong>：P5MIN 未来 ~1 小时；PREDISPATCH 未来 24–40 小时</li>
+<li><strong>用途</strong>：价格图虚线预测段、建议报价</li>
+</ul>
+<h3>4. AEMO NEMWeb · 日前竞价 Next_Day_Offer</h3>
+<ul>
+<li><strong>URL</strong>：<code>.../Next_Day_Offer_Energy_SPARSE/</code>（+ FCAS、BIDMOVE_COMPLETE 三路）</li>
+<li><strong>发布</strong>：每日约 12:30（次日盘） · <strong>抓取</strong> 5 分钟</li>
+<li><strong>两张 MMS 表</strong>：</li>
+<li><code>BIDS_BIDDAYOFFER</code> → 10 档价格带 + 方向（GEN/LOAD） → <code>nem_bidday_offer</code>（2.5 万）</li>
+<li><code>BIDS_BIDOFFERPERIOD_SPARSE</code> → 逐区间申报量（稀疏展开成 5 分钟密集行） → <code>nem_bidper_offer</code>（<strong>3700 万，保留 14 天</strong>）</li>
+<li><strong>用途</strong>：电站透视竞价带（买卖双向）、VPP 同行对标</li>
+<li>⚠️ <strong>当日竞价的唯一来源</strong>（BIDMOVE 次日才补全）</li>
+</ul>
+<h3>5. AEMO NEMWeb · 短期充裕度 ST PASA</h3>
+<ul>
+<li><strong>URL</strong>：<code>.../Short_Term_PASA_Reports/</code> · <code>PUBLIC_STPASA_*.zip</code></li>
+<li><strong>发布</strong> 每小时 · <strong>抓取</strong> 30 分钟</li>
+<li>抽 <code>DEMAND10/50/90</code>（需求三分位）、<code>AVAILABLEGENERATION</code>、LOR 储备等级 → <code>nem_st_pasa</code>（5760）</li>
+<li><strong>用途</strong>：14 天供需充裕度页、LOR 缺电预警</li>
+</ul>
+<h3>6. AEMO NEMWeb · 屋顶光伏 ROOFTOP_PV</h3>
+<ul>
+<li><strong>URL</strong>：<code>.../Reports/CURRENT/ROOFTOP_PV/ACTUAL/</code>（+ ARCHIVE 回填）</li>
+<li><strong>发布</strong> 30 分钟（卫星估算） · <strong>抓取</strong> 15 分钟</li>
+<li>MMS 表 <code>ROOFTOP_ACTUAL</code> → <code>REGIONID</code> + <code>POWER</code> → <code>nem_rooftop_pv</code>（4 千）</li>
+<li><strong>用途</strong>：燃料组合中的屋顶光伏层（30→5 分钟插值）</li>
+</ul>
+<h3>7. AEMO NEMWeb · 市场公告 Market_Notice</h3>
+<ul>
+<li><strong>URL</strong>：<code>.../Reports/Current/Market_Notice/</code> · 纯文本 <code>NEMITWEB1_MKTNOTICE_YYYYMMDD.R&lt;id&gt;</code></li>
+<li><strong>发布</strong> 事件驱动 · <strong>抓取</strong> 5 分钟</li>
+<li>正则抽取：公告 ID、类型、创建时间、外部引用、正文 → <code>nem_market_notice</code>（保留 500 条）</li>
+<li><strong>用途</strong>：全局滚动条 + 资讯页公告区（类型已中文化）</li>
+</ul>
+<h3>8. AEMO MMSDM 归档 · 注册表（月度）</h3>
+<ul>
+<li><strong>URL</strong>：<code>https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/{年}/{月}/...</code>（URL 含双重编码 <code>%2523</code>）</li>
+<li><strong>发布</strong> 月度 · <strong>抓取</strong> 每周（自动回退找最新可用月）</li>
+<li><strong>5 表联查</strong>（<code>PARTICIPANT_REGISTRATION_*</code>）：</li>
+</ul>
+<table><thead><tr><th>表</th><th>提供</th></tr></thead><tbody><tr><td>DUDETAILSUMMARY</td><td>DUID→区域、调度类型、损失因子（TLF）、有效期</td></tr><tr><td>DUDETAIL</td><td>注册容量/最大容量</td></tr><tr><td>DUALLOC</td><td>DUID→机组组 GENSETID</td></tr><tr><td>GENUNITS</td><td>燃料类型（CO2E_ENERGY_SOURCE）、排放因子</td></tr><tr><td>STATION</td><td>电站名称</td></tr></tbody></table>
+<ul>
+<li>→ <code>nem_facility_registry</code>（712 现役机组）+ <code>nem_mlf</code>（1051，损失因子）</li>
+<li><strong>用途</strong>：权威元数据底座——修正手工 DUID 列表、电站清单、MLF 热图、所有&quot;全量机组&quot;功能</li>
+</ul>
+<h3>9. AEMO WA · 西澳参考价 WEMDE</h3>
+<ul>
+<li><strong>URL</strong>：<code>https://data.wa.aemo.com.au/public/market-data/wemde/referenceTradingPrice/current/</code></li>
+<li><strong>格式</strong>：<strong>JSON</strong>（非 MMS） · <strong>发布</strong> 日更 · <strong>抓取</strong> 5 分钟</li>
+<li>抽 <code>tradingInterval</code> + <code>referenceTradingPrice</code> → <code>wem_price</code>（1679）</li>
+<li><strong>用途</strong>：WEM 区域价格图</li>
+</ul>
+<h3>10. Open-Meteo · 天气（实时调用，不入库）</h3>
+<ul>
+<li><strong>URL</strong>：<code>https://api.open-meteo.com/v1/forecast</code></li>
+<li>五区首府坐标，抽气温/体感/光照/风速风向，过去 6 天 + 当天（168 小时）</li>
+<li><strong>30 分钟内存缓存</strong>，不落库</li>
+<li><strong>用途</strong>：天气页，关联风光出力与电价信号</li>
+</ul>
+<h3>11. 澳洲能源媒体 RSS · 新闻</h3>
+<ul>
+<li><strong>URL</strong>（4 路 RSS）：</li>
+<li><code>https://reneweconomy.com.au/feed/</code></li>
+<li><code>https://www.pv-magazine-australia.com/feed/</code></li>
+<li><code>https://www.energymagazine.com.au/feed/</code></li>
+<li><code>https://thedriven.io/feed/</code></li>
+<li><strong>抓取</strong> 每小时，XML 解析抽标题/链接/作者/时间/摘要/配图/分类 → <code>nem_news</code>（保留 200 条）</li>
+<li><strong>用途</strong>：资讯页新闻卡片，带原文链接</li>
+</ul>
+<h3>数据接口汇总表</h3>
+<table><thead><tr><th>#</th><th>提供方</th><th>接口</th><th>格式</th><th>发布</th><th>抓取</th><th>入库表（行数）</th></tr></thead><tbody><tr><td>1</td><td>AEMO NEMWeb</td><td>DispatchIS</td><td>ZIP/CSV</td><td>5min</td><td>60s</td><td>dispatch_price 等 4 表</td></tr><tr><td>2</td><td>AEMO NEMWeb</td><td>Dispatch_SCADA</td><td>ZIP/CSV</td><td>5min</td><td>60s</td><td>unit_dispatch（192 万）</td></tr><tr><td>3</td><td>AEMO NEMWeb</td><td>P5MIN/PREDISPATCH</td><td>ZIP/CSV</td><td>5/30min</td><td>5min</td><td>predispatch_price</td></tr><tr><td>4</td><td>AEMO NEMWeb</td><td>Next_Day_Offer</td><td>ZIP/CSV</td><td>日</td><td>5min</td><td>bidday/bidper（3700 万）</td></tr><tr><td>5</td><td>AEMO NEMWeb</td><td>ST PASA</td><td>ZIP/CSV</td><td>1h</td><td>30min</td><td>st_pasa</td></tr><tr><td>6</td><td>AEMO NEMWeb</td><td>Rooftop PV</td><td>ZIP/CSV</td><td>30min</td><td>15min</td><td>rooftop_pv</td></tr><tr><td>7</td><td>AEMO NEMWeb</td><td>Market Notice</td><td>TXT</td><td>事件</td><td>5min</td><td>market_notice</td></tr><tr><td>8</td><td>AEMO MMSDM</td><td>注册表 5 表</td><td>ZIP/CSV</td><td>月</td><td>周</td><td>facility_registry/mlf</td></tr><tr><td>9</td><td>AEMO WA</td><td>WEMDE</td><td>JSON</td><td>日</td><td>5min</td><td>wem_price</td></tr><tr><td>10</td><td>Open-Meteo</td><td>天气</td><td>JSON</td><td>—</td><td>实时</td><td>（缓存，不落库）</td></tr><tr><td>11</td><td>能源媒体</td><td>RSS×4</td><td>XML</td><td>—</td><td>1h</td><td>news</td></tr></tbody></table>
+<hr>
+<h2>五、数据规模</h2>
+<table><thead><tr><th>数据</th><th>量级</th><th>时间跨度</th></tr></thead><tbody><tr><td>5 分钟电价</td><td>63 万行</td><td>2025-04 至今（14 个月）</td></tr><tr><td>机组出力 SCADA</td><td>192 万行</td><td>近 1 个月（全量 510 机组）</td></tr><tr><td>竞价申报</td><td>3700 万行</td><td>保留 14 天</td></tr><tr><td>注册机组元数据</td><td>712 台</td><td>月度刷新</td></tr><tr><td>损失因子 MLF</td><td>1051 条</td><td>财年制</td></tr></tbody></table>
+<hr>
+<h2>六、需要管理层知晓的几点（重要）</h2>
+<h3>1. 真实 vs 模拟的边界</h3>
+<ul>
+<li>✅ <strong>真实数据</strong>：所有价格、出力、竞价、注册信息、公告、新闻——直接来自 AEMO/媒体官方源</li>
+<li>⚠️ <strong>模拟数据</strong>：BESS/VPP 的<strong>模拟交易盘</strong>（paper trading）和 VPP 资源遥测（EV 可用率/电池 SoC）是演示用模拟器，非真实运营数据。当前界面<strong>未明确标注 DEMO</strong>，公开发布前建议加标识</li>
+</ul>
+<h3>2. 运维风险</h3>
+<p>竞价表（<code>nem_bidper_offer</code>）已达 3700 万行（SQLite），增长快；建议尽快定保留策略或迁移 Postgres。</p>
+<h3>3. 待办（已识别未做）</h3>
+<p>价格告警推送、碳排放强度、移动端适配、用户认证/限流、自动化测试、数据备份策略、新闻/公告正文翻译（目前保留英文原文）。</p>
+<h3>4. 合规</h3>
+<p>使用 AEMO 公开数据需注明来源（attribution），页面尚未添加署名。</p>
+<hr>
+<p>*文档生成于项目当前状态，数据量级为快照值。*</p></body></html>

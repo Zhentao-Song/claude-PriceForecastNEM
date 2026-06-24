@@ -1,0 +1,274 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>PRD</title><style>@page{margin:1.5cm}body{font-family:-apple-system,'PingFang SC','Hiragino Sans GB',sans-serif;max-width:900px;margin:0 auto;padding:0 18px;color:#1d1d1f;line-height:1.55;font-size:12.5px}
+h1{font-size:23px;border-bottom:3px solid #0a84ff;padding-bottom:8px;margin-top:26px}
+h2{font-size:17px;border-bottom:1px solid #ddd;padding-bottom:5px;margin-top:22px;color:#0a4d8c;page-break-after:avoid}
+h3{font-size:14px;margin-top:16px;color:#333;page-break-after:avoid}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:11.5px;page-break-inside:avoid}
+th{background:#f0f4f8;border:1px solid #ccd;padding:5px 8px;text-align:left}
+td{border:1px solid #ddd;padding:4px 8px;vertical-align:top}
+code{background:#f3f3f5;padding:1px 4px;border-radius:3px;font-size:11px;color:#c0392b}
+pre{background:#1d1d1f;color:#e0e0e0;padding:10px;border-radius:6px;font-size:11px}
+blockquote{border-left:3px solid #0a84ff;margin:10px 0;padding:3px 12px;background:#f7faff;color:#555}
+hr{border:none;border-top:1px solid #e0e0e0;margin:16px 0}
+ul{margin:6px 0;padding-left:20px}li{margin:2px 0}strong{color:#000}</style></head><body><h1>澳洲电力市场数据平台 · 产品需求文档（PRD · 研发交付级）</h1>
+<blockquote>版本：v1.0 ｜ 状态：现状对齐（as-built）+ 演进规划</blockquote>
+<blockquote>适用：产品、研发、QA、技术经理共同基线</blockquote>
+<p>&gt;</p>
+<blockquote><strong>阅读约定</strong></blockquote>
+<blockquote>- <code>FR-x.y</code> = 功能需求（可测试）；<code>AC</code> = 验收标准（Given/When/Then）</blockquote>
+<blockquote>- 优先级：<strong>P0</strong> 已上线核心 / <strong>P1</strong> 应有 / <strong>P2</strong> 增强</blockquote>
+<blockquote>- &quot;现状&quot;= 已实现并运行；&quot;规划&quot;= 未实现，列出供排期</blockquote>
+<blockquote>- 术语见文末附录 C；字段定义见附录 A</blockquote>
+<hr>
+<h2>目录</h2>
+<p>0. 产品目标与角色</p>
+<p>1. 全局非功能需求（NFR）</p>
+<p>2. 模块 1：NEM 总览</p>
+<p>3. 模块 2：BESS 储能</p>
+<p>4. 模块 3：VPP 虚拟电厂</p>
+<p>5. 模块 4：BESS-Calc 投资测算器</p>
+<p>6. 模块 5：Stations 电站透视</p>
+<p>7. 模块 6：News 资讯</p>
+<p>8. 全局交互与状态规范</p>
+<p>附录 A 数据字典 ｜ B NEM 市场规则 ｜ C 术语表 ｜ D 待决问题</p>
+<hr>
+<h2>0. 产品目标与角色</h2>
+<h3>0.1 目标</h3>
+<p>把 AEMO 分散的公开数据，整合为澳洲电力市场参与者可决策的实时视图，</p>
+<p>对标 ez2view（行情）/ OpenNEM（公开数据）/ Modo Energy（储能分析）。</p>
+<h3>0.2 用户角色与主要场景</h3>
+<table><thead><tr><th>角色</th><th>代号</th><th>主场景</th></tr></thead><tbody><tr><td>储能运营/交易员</td><td>TRADER</td><td>决策充放电时点与报价、看收益排名、盯对手</td></tr><tr><td>VPP 聚合商</td><td>VPP</td><td>FCAS 报价策略、同行对标、组合分成核算</td></tr><tr><td>投资/开发</td><td>INVEST</td><td>储能项目财务可行性、选址收益</td></tr><tr><td>市场分析/研究</td><td>ANALYST</td><td>价格趋势、燃料结构、缺电预警、行业动态</td></tr></tbody></table>
+<h3>0.3 成功度量（产品级北极星）</h3>
+<ul>
+<li>周活跃用户（WAU）、人均会话时长、人均页面查询数</li>
+<li>关键页面（NEM 总览、Stations、BESS 榜）回访率</li>
+<li>数据新鲜度达标率（见 NFR-2）</li>
+</ul>
+<hr>
+<h2>1. 全局非功能需求（NFR）</h2>
+<table><thead><tr><th>编号</th><th>需求</th><th>目标值</th><th>验证方式</th></tr></thead><tbody><tr><td>NFR-1</td><td>API 响应延迟（热点端点）</td><td>P95 &lt; 800ms（缓存命中 &lt; 50ms）</td><td>压测/日志</td></tr><tr><td>NFR-2</td><td>数据新鲜度</td><td>5 分钟类数据滞后 &lt; 10min；超 3× 周期标记 stale</td><td><code>/api/health</code> data_age</td></tr><tr><td>NFR-3</td><td>可用性</td><td>单实例，目标 99%；爬虫失败不影响读 API</td><td>监控</td></tr><tr><td>NFR-4</td><td>并发</td><td>支持 ≥ 50 并发只读；写入（爬虫）批间让步避免锁饥饿</td><td>压测</td></tr><tr><td>NFR-5</td><td>数据保留</td><td>电价 ≥12 月；竞价 14 天滚动；新闻 200 条</td><td>DB 检查</td></tr><tr><td>NFR-6</td><td>国际化</td><td>全 UI 中英双语切换，即时生效</td><td>手测</td></tr><tr><td>NFR-7</td><td>浏览器兼容</td><td>最新 Chrome/Safari/Edge；移动端<strong>暂不保证</strong>（规划）</td><td>手测</td></tr><tr><td>NFR-8</td><td>数据真实性</td><td>真实数据标官方源；模拟数据须标 DEMO（<strong>现状缺失，P1</strong>）</td><td>评审</td></tr><tr><td>NFR-9</td><td>合规</td><td>AEMO 数据须页面署名（<strong>现状缺失，P1</strong>）</td><td>评审</td></tr><tr><td>NFR-10</td><td>安全</td><td>公开部署需限流/防滥用（<strong>现状缺失，P1</strong>）</td><td>评审</td></tr></tbody></table>
+<hr>
+<h2>2. 模块 1：NEM 总览（P0）</h2>
+<h3>2.1 概述</h3>
+<p>东部市场全景：五区域实时电价/需求、地图潮流、燃料结构、价格走势与预测、</p>
+<p>历史回查、FCAS、热力图、天气、充裕度。所有交易决策的起点。</p>
+<h3>2.2 用户故事</h3>
+<ul>
+<li>US-1.1（TRADER）作为交易员，我想一屏看到五区域当前电价与趋势，以便快速判断哪个区域有交易机会。</li>
+<li>US-1.2（TRADER）我想看到价格的官方预测线，以便预判未来 1–40 小时走势。</li>
+<li>US-1.3（ANALYST）我想查任意历史日的全天价格曲线，以便复盘事件。</li>
+<li>US-1.4（ANALYST）我想看燃料结构实时占比，以便理解价格驱动因素。</li>
+<li>US-1.5（TRADER）我想被提示累积价格是否接近管制阈值（CPT），以便防范 APC 风险。</li>
+<li>US-1.6（ANALYST）我想看未来 14 天供需充裕度与缺电预警，以便研判紧张时段。</li>
+</ul>
+<h3>2.3 功能需求</h3>
+<ul>
+<li><strong>FR-1.1</strong> 区域选择器支持 NSW1/QLD1/VIC1/SA1/TAS1 + WEM；切换后全页联动。</li>
+<li><strong>FR-1.2</strong> KPI 卡展示：现货价、需求、下一区间预测价、预测需求、APC 状态。</li>
+<li><strong>FR-1.3</strong> 地图渲染机组点（按燃料着色/形状）、联络线潮流（方向 + 颜色表征利用率）、MLF 热图层；支持拖拽（手形光标）、缩放（按钮固定）、范围限制在澳洲。</li>
+<li><strong>FR-1.4</strong> 价格走势图支持 6h/1d/3d/7d；叠加 actual RRP、需求、AEMO 预测（P5MIN + PREDISPATCH 虚线）、绑定约束标记。</li>
+<li><strong>FR-1.5</strong> 提供 K 线图视图（OHLC，按 30/60/120 分钟分桶），含 6h 默认窗口 + 拖动滑窗；hover 显示开高低收 + 涨跌幅。</li>
+<li><strong>FR-1.6</strong> 历史日查询：日期选择器，范围 = 本地归档区间；返回选定日 288 个 5 分钟价格 + 当日最高/最低/均价/价差/负价区间数/&gt;$300 区间数。</li>
+<li><strong>FR-1.7</strong> 燃料组合实时图按燃料堆叠展示出力 + 各燃料利用率%（当前出力/装机）。</li>
+<li><strong>FR-1.8</strong> CPT 累积价格：实时计算滚动 7 天累积 RRP，对比 $1,490,700 阈值，APC 徽章显示 未触发/接近/已触发。</li>
+<li><strong>FR-1.9</strong> FCAS 矩阵展示 8 个辅助服务市场当前价格。</li>
+<li><strong>FR-1.10</strong> 90 天价格热力图（横轴小时、纵轴日期、色阶价格）。</li>
+<li><strong>FR-1.11</strong> PASA 充裕度：未来 14 天需求三分位（D10/50/90）、可用发电、LOR 等级，支持 30min/日聚合切换。</li>
+</ul>
+<h3>2.4 验收标准（节选）</h3>
+<ul>
+<li><strong>AC-1.1</strong> Given 选中 NSW1，When 新调度数据到达（5 分钟），Then KPI 与图在 ≤10min 内刷新且时间戳更新。</li>
+<li><strong>AC-1.5</strong> Given K 线 1d 视图，When 数据为 288 区间，Then 默认显示首 6 小时窗口，拖动滑窗可平移到全天，hover 任意蜡烛显示 OHLC。</li>
+<li><strong>AC-1.6</strong> Given 选择 14 个月前的某日，When 该日在归档范围内，Then 返回该日完整曲线；超范围则日期不可选。</li>
+<li><strong>AC-1.8</strong> Given 滚动 7 天累积价格 &lt; 阈值，Then APC 徽章显示&quot;未触发&quot;且为灰；≥阈值显示&quot;已触发&quot;且高亮。</li>
+</ul>
+<h3>2.5 交互状态</h3>
+<ul>
+<li>加载中：骨架/「加载中…」占位。</li>
+<li>无数据：某燃料全程为 0 则从图例剔除；历史日无数据显示「该日期无数据」。</li>
+<li>边界：负价时 K 线/曲线 y 轴跨零，显示 $0 参考线；价格触顶（$16,600）正常显示不截断。</li>
+<li>错误：单接口失败不阻塞整页，对应卡片显示占位，其余照常。</li>
+</ul>
+<h3>2.6 成功指标</h3>
+<p>NEM 总览日均停留时长；历史日查询使用次数；K 线视图切换率。</p>
+<h3>2.7 不做（Out of scope，本期）</h3>
+<ul>
+<li>跨区域价差套利计算器；自定义指标叠加；图表导出 CSV（见规划）。</li>
+</ul>
+<hr>
+<h2>3. 模块 2：BESS 储能（P0）</h2>
+<h3>3.1 概述</h3>
+<p>电池套利工作台：调度面板、模拟交易、竞价生命周期、建议报价、收益榜单、合规记分卡。</p>
+<h3>3.2 用户故事</h3>
+<ul>
+<li>US-2.1（TRADER）我想看电池当前 SoC 与功率包络，以便决定下一步充放。</li>
+<li>US-2.2（TRADER）我想拿到基于价格预测的建议报价，以便快速下单（模拟）。</li>
+<li>US-2.3（TRADER）我想看全市场电池的收益排名，以便对标自身策略。</li>
+<li>US-2.4（TRADER）我想跟踪一笔报价从提交到结算的生命周期，以便理解市场机制。</li>
+</ul>
+<h3>3.3 功能需求</h3>
+<ul>
+<li><strong>FR-2.1</strong> 调度面板显示 SoC、功率上下限、未来 2 小时充放计划与预期收益。</li>
+<li><strong>FR-2.2</strong> 模拟交易盘基于真实电池（WTAHB1 Waratah）：支持单档/多档报价、按交易日批量报价、撤单；结算用真实 RRP。</li>
+<li><strong>FR-2.3</strong> 建议报价：依据 P5MIN/预调度价格 + 当前 SoC 给出充/放建议与档位；门控关闭区间禁止下单并提示。</li>
+<li><strong>FR-2.4</strong> 收益榜单：按净收益对全澳电池排名（默认本区域，可切全 NEM；窗口 1d/3d/7d），展示放电量、卖出均价、买入均价、价差、净收益。</li>
+<li><strong>FR-2.5</strong> 竞价生命周期时间线：展示某区间报价的状态流转。</li>
+<li><strong>FR-2.6</strong> 合规记分卡（可展开抽屉）：规则覆盖率、待结算/已结算统计。</li>
+<li><strong>FR-2.7</strong> 收益计算口径：放电收入 = Σ(MW&gt;0 × 5/60 × RRP × MLF)；充电成本 = Σ(|MW&lt;0| × 5/60 × RRP ÷ MLF)；净 = 收入 − 成本；价差 = 放电均价 − 充电均价。仅能量、不含 FCAS。</li>
+</ul>
+<h3>3.4 验收标准</h3>
+<ul>
+<li><strong>AC-2.4</strong> Given 收益榜 NSW1 / 24h，When 加载完成，Then 按净收益降序、前 3 名带奖牌、含价差列；切「全 NEM」后重算并刷新。</li>
+<li><strong>AC-2.7</strong> Given 某电池当日有充有放，Then 净收益 = 放电收入 − 充电成本，且 MLF 对发电乘、对负荷除（FCAS 不参与）。</li>
+<li><strong>AC-2.2</strong> Given 模拟报价已提交，When 目标区间出现真实出清价，Then 该报价按价格自动结算并更新累计盈亏。</li>
+</ul>
+<h3>3.5 交互状态</h3>
+<ul>
+<li>模拟盘为 DEMO（<strong>须加标识，NFR-8</strong>）。</li>
+<li>榜单无活动电池：显示「该时段无电池活动」。</li>
+<li>门控关闭：建议报价按钮禁用 + 倒计时提示。</li>
+</ul>
+<h3>3.6 成功指标</h3>
+<p>模拟报价提交数；收益榜查看/切换次数；建议报价采纳率。</p>
+<h3>3.7 不做</h3>
+<p>真实下单/真金交易（平台仅模拟）；FCAS 收益纳入榜单（当前仅能量口径）。</p>
+<hr>
+<h2>4. 模块 3：VPP 虚拟电厂（P0）</h2>
+<h3>4.1 概述</h3>
+<p>聚合分布式资源的虚拟电厂运营 + 同行 VPP 报价对标。</p>
+<h3>4.2 用户故事</h3>
+<ul>
+<li>US-3.1（VPP）我想管理组合内各资源（EV/电池）的可用性与调度，以便聚合参与市场。</li>
+<li>US-3.2（VPP）我想按基线核算需求响应量并与客户分成，以便结算。</li>
+<li>US-3.3（VPP）我想看 AGL/ShineHub/EnelX 等真实聚合商怎么报 FCAS，以便校准自身策略。</li>
+</ul>
+<h3>4.3 功能需求</h3>
+<ul>
+<li><strong>FR-3.1</strong> 组合视图：累计盈亏、资源清单（类型/容量/SoC/可用率/opt-in/窗口/能力）。</li>
+<li><strong>FR-3.2</strong> 报价：能量 + FCAS，含梯形（trapezium）参数、最大可用、日能量约束、爬坡。</li>
+<li><strong>FR-3.3</strong> 基线/分成/包络建模：需求响应量 = 基线 − 实际；按 customer_share_pct 分成；动态运行包络约束。</li>
+<li><strong>FR-3.4</strong> 同行对标：列出有竞价活动的真实 VPP/聚合商（≥1 个市场有报价），左栏可搜索/按区域筛选。</li>
+<li><strong>FR-3.5</strong> 对标主面板：选中机组显示 KPI（机队最大申报 MW = 近 7 天 BIDPEROFFER 峰值、参与市场数、调度侧、最新申报日）+ 市场总览表 + 选中市场的 10 档价格阶梯 + 全天带量图（6h 窗口 + 滑窗）。</li>
+<li><strong>FR-3.6</strong> 方向语义：FCAS RAISE = 发电侧(GEN)、LOWER = 负荷侧(LOAD)，自动选择。</li>
+</ul>
+<h3>4.4 验收标准</h3>
+<ul>
+<li><strong>AC-3.4</strong> Given 对标页加载，Then 仅显示近 14 天有竞价的聚合商，已排除占位/燃机误匹配（DG_*/RT_*/BLNK*/DRYCGT*）。</li>
+<li><strong>AC-3.5</strong> Given 选中某 VPP 的某 FCAS 市场，Then 显示该市场 10 档价格 + 当日全天申报量，左栏高度与主面板底部对齐。</li>
+<li><strong>AC-3.5b</strong> Given 该 VPP 注册但近 7 天未投容量，Then 机队最大申报显示「未投放」。</li>
+</ul>
+<h3>4.5 交互状态</h3>
+<ul>
+<li>VPP 遥测（EV 可用率、电池 SoC）为模拟器（<strong>须标 DEMO</strong>）。</li>
+<li>无 SCADA：聚合资源非调度、无实时出力，页面以竞价为唯一足迹，需文案说明。</li>
+</ul>
+<h3>4.6 成功指标</h3>
+<p>对标页机组切换次数；不同 VPP/市场查看分布。</p>
+<h3>4.7 不做</h3>
+<p>真实 NMI 级数据、逐户结算（无数据源）；VPP 实时出力（AEMO 不发布）。</p>
+<hr>
+<h2>5. 模块 4：BESS-Calc 投资测算器（P1）</h2>
+<h3>5.1 概述</h3>
+<p>储能项目财务可行性建模 + 历史回测 + 敏感性分析。</p>
+<h3>5.2 用户故事</h3>
+<ul>
+<li>US-4.1（INVEST）我想输入容量/成本/融资条件得到 IRR/NPV/回收期，以便判断项目可行性。</li>
+<li>US-4.2（INVEST）我想用真实历史价格回测套利收益，以便验证收入假设。</li>
+<li>US-4.3（INVEST）我想看哪些参数对收益最敏感，以便聚焦关键假设。</li>
+</ul>
+<h3>5.3 功能需求</h3>
+<ul>
+<li><strong>FR-4.1</strong> 输入：功率/能量容量、RTE、退化率、扩容、capex（功率/能量/固定）、opex、WACC、负债比、税率、期限、MLF、收入项（套利价差/FCAS/CIS）。</li>
+<li><strong>FR-4.2</strong> 输出：LCOS、项目 IRR、股权 IRR、NPV、回收期、DSCR、收入/成本拆解、现金流。</li>
+<li><strong>FR-4.3</strong> 历史回测：选区域 + 窗口，用真实价格回算日套利收益分布（中位/P25/P75）。</li>
+<li><strong>FR-4.4</strong> 敏感性（龙卷风图）：各参数 ±变动对核心指标的影响排序。</li>
+<li><strong>FR-4.5</strong> 计算规则：LCOS = 全生命周期成本现值 ÷ 放电量现值；退化逐年衰减可用容量；MLF 影响能量收入。</li>
+</ul>
+<h3>5.4 验收标准</h3>
+<ul>
+<li><strong>AC-4.2</strong> Given 输入一组参数 + 回测窗口，Then 输出 IRR/NPV/回收期且与拆解项自洽（NPV&gt;0 ↔ IRR&gt;WACC）。</li>
+<li><strong>AC-4.3</strong> Given 历史回测，Then 返回该窗口日收益的中位数与四分位。</li>
+</ul>
+<h3>5.5 交互状态</h3>
+<p>计算中显示「computing」；输入非法（负值/越界）即时校验提示并阻断计算。</p>
+<h3>5.6 成功指标</h3>
+<p>测算完成次数；回测使用率；参数导出/复用。</p>
+<h3>5.7 不做</h3>
+<p>多项目组合优化；税务细则按州差异（用统一假设）。</p>
+<hr>
+<h2>6. 模块 5：Stations 电站透视（P0）</h2>
+<h3>6.1 概述</h3>
+<p>任意发电机组的全息档案：实时出力、元数据、当日收益、出力×价格、真实竞价带。</p>
+<h3>6.2 用户故事</h3>
+<ul>
+<li>US-5.1（ANALYST）我想搜任意机组看其实时出力与基本信息，以便研究/监管。</li>
+<li>US-5.2（TRADER）我想看某机组真实的竞价带（含买卖双向），以便分析其策略。</li>
+<li>US-5.3（ANALYST）我想看机组当日发电量与现货收益估算，以便评估其经济性。</li>
+</ul>
+<h3>6.3 功能需求</h3>
+<ul>
+<li><strong>FR-5.1</strong> 左栏机组列表：~712 台，按区域/燃料筛选、按 DUID/名称搜索，显示容量与是否在地图。</li>
+<li><strong>FR-5.2</strong> KPI：实时出力、注册容量、利用率%、MLF（含财年）、排放强度。</li>
+<li><strong>FR-5.3</strong> 当日卡：发电量、充/耗电量、现货收入、充电成本、净收益（含口径说明）。</li>
+<li><strong>FR-5.4</strong> 出力×价格图：5 分钟 SCADA 出力（左轴）对照区域 RRP（右轴），支持 1d/3d/7d。</li>
+<li><strong>FR-5.5</strong> 竞价带（全宽独立行）：10 档价格阶梯 + 全交易日(288 区间)带量图（6h 窗口 + 滑窗）；电池可切买/卖方向。</li>
+<li><strong>FR-5.6</strong> 交易日规则：04:05 → 次日 04:00；AEMO D+1 披露，默认展示最近完整交易日。</li>
+</ul>
+<h3>6.4 验收标准</h3>
+<ul>
+<li><strong>AC-5.1</strong> Given 列表，When 选区域 NSW1，Then 仅显示该区机组、按容量降序、已排除占位 DUID。</li>
+<li><strong>AC-5.5</strong> Given 选中电池 + 卖电方向，Then 竞价阶梯与带量为 GEN 侧；切买电显示 LOAD 侧不同价格。</li>
+<li><strong>AC-5.5b</strong> Given 任意机组，Then 竞价带返回完整 288 区间（04:05→04:00），不再因日历日切片只显示 4 小时。</li>
+<li><strong>AC-5.4</strong> Given 非调度机组无 SCADA，Then 出力图显示「该机组暂无 SCADA 数据」。</li>
+</ul>
+<h3>6.5 交互状态</h3>
+<p>未选机组：主面板提示「从列表选择」。无竞价（非调度）：提示该机组不申报。</p>
+<h3>6.6 成功指标</h3>
+<p>机组查询数；竞价带查看/方向切换次数。</p>
+<h3>6.7 不做</h3>
+<p>机组级 FCAS 收益分解；跨机组对比视图（规划）。</p>
+<hr>
+<h2>7. 模块 6：News 资讯（P1）</h2>
+<h3>7.1 概述</h3>
+<p>AEMO 官方公告 + 澳洲能源行业新闻聚合，带原文链接。</p>
+<h3>7.2 用户故事</h3>
+<ul>
+<li>US-6.1（ANALYST）我想一处看官方公告与行业新闻，以便掌握市场动态。</li>
+<li>US-6.2（ANALYST）我想点击新闻直达原文，以便深读。</li>
+<li>US-6.3（TRADER）我想第一时间看到 LOR 缺电预警等高优公告。</li>
+</ul>
+<h3>7.3 功能需求</h3>
+<ul>
+<li><strong>FR-6.1</strong> 三段切换：全部 / 新闻 / AEMO 公告；新闻支持按来源筛选。</li>
+<li><strong>FR-6.2</strong> 新闻卡片：配图、来源彩签、标题、摘要、作者、相对时间；点击整卡新标签页打开原文（noopener）。</li>
+<li><strong>FR-6.3</strong> 公告列表：类型彩签（按影响分色）、时间、外部引用，可展开正文。</li>
+<li><strong>FR-6.4</strong> 全局公告滚动条（所有页顶部）：高优公告优先，鼠标悬停暂停。</li>
+<li><strong>FR-6.5</strong> 翻译策略：公告类型中文化；正文与新闻标题保留英文原文 + 中文「原文（英文）」提示。</li>
+</ul>
+<h3>7.4 验收标准</h3>
+<ul>
+<li><strong>AC-6.2</strong> Given 新闻卡，When 点击，Then 新标签打开对应原文 URL；图片加载失败则隐藏图位不破版。</li>
+<li><strong>AC-6.3</strong> Given 中文界面，When 展开公告，Then 类型为中文、正文为英文且带中文提示行。</li>
+</ul>
+<h3>7.5 交互状态</h3>
+<p>加载中显示「加载中…」；无图片自动隐藏图位；空列表占位。</p>
+<h3>7.6 成功指标</h3>
+<p>新闻点击率（CTR）、公告展开次数。</p>
+<h3>7.7 不做</h3>
+<p>正文/标题机器翻译（保留权威英文）；评论/收藏（规划）。</p>
+<hr>
+<h2>8. 全局交互与状态规范</h2>
+<table><thead><tr><th>状态</th><th>统一规则</th></tr></thead><tbody><tr><td>加载中</td><td>文案「加载中… / Loading…」或骨架，不留白屏</td></tr><tr><td>空数据</td><td>明确空态文案，不显示 0 值误导</td></tr><tr><td>错误</td><td>单接口失败局部降级，不阻塞整页；可重试</td></tr><tr><td>时间</td><td>一律 NEM 时间（UTC+10）；相对时间用于新闻</td></tr><tr><td>数值</td><td>价格 $/MWh 两位小数；MW 视量级取整；货币 $k/$M 缩写</td></tr><tr><td>颜色语义</td><td>涨/放电=绿、跌/充电=橙红、负价穿零线橙、约束红</td></tr><tr><td>双语</td><td>所有 UI 文案走 i18n；第三方内容（公告正文/新闻）保留原文</td></tr></tbody></table>
+<hr>
+<h2>附录 A · 数据字典（核心字段）</h2>
+<table><thead><tr><th>字段</th><th>定义</th><th>单位</th><th>来源</th></tr></thead><tbody><tr><td>RRP</td><td>区域参考价</td><td>$/MWh</td><td>DISPATCH_PRICE</td></tr><tr><td>TOTALDEMAND</td><td>区域需求</td><td>MW</td><td>DISPATCH_REGIONSUM</td></tr><tr><td>SCADAVALUE</td><td>机组实时出力</td><td>MW</td><td>DISPATCH_UNIT_SCADA</td></tr><tr><td>MLF</td><td>边际损失因子（发电×、负荷÷，FCAS 不受影响）</td><td>比率</td><td>注册档案 TLF</td></tr><tr><td>MAXAVAIL</td><td>某档/区间最大可用</td><td>MW</td><td>BIDPEROFFER</td></tr><tr><td>PRICEBAND1-10</td><td>10 档报价价格</td><td>$/MWh</td><td>BIDDAYOFFER</td></tr><tr><td>DIRECTION</td><td>报价方向 GEN/LOAD</td><td>枚举</td><td>BIDDAYOFFER</td></tr><tr><td>POWER</td><td>屋顶光伏出力</td><td>MW</td><td>ROOFTOP_ACTUAL</td></tr><tr><td>DEMAND10/50/90</td><td>充裕度需求三分位</td><td>MW</td><td>STPASA</td></tr><tr><td>利用率</td><td>当前出力 ÷ 注册容量</td><td>%</td><td>派生</td></tr><tr><td>价差(spread)</td><td>放电均价 − 充电均价</td><td>$/MWh</td><td>派生</td></tr></tbody></table>
+<h2>附录 B · NEM 市场规则速查</h2>
+<table><thead><tr><th>概念</th><th>规则</th></tr></thead><tbody><tr><td>区域</td><td>NSW1/QLD1/VIC1/SA1/TAS1 独立定价</td></tr><tr><td>调度周期</td><td>5 分钟出清与结算</td></tr><tr><td>交易日</td><td>04:05 → 次日 04:00，288 区间</td></tr><tr><td>价格区间</td><td>−$1,000 ~ $16,600/MWh</td></tr><tr><td>FCAS</td><td>8 市场：RAISE/LOWER × 6SEC/60SEC/5MIN/REG（+1SEC 快速 FCAS）</td></tr><tr><td>CPT/APC</td><td>滚动 7 天累积 $1,490,700 → APC（约 $600 管制）</td></tr><tr><td>LOR</td><td>LOR1 预警 / LOR2 短缺 / LOR3 可能拉闸</td></tr><tr><td>竞价披露</td><td>D+1</td></tr><tr><td>屋顶光伏</td><td>卫星估算，30 分钟，非调度</td></tr></tbody></table>
+<h2>附录 C · 术语表</h2>
+<p>RRP 区域参考价 ｜ FCAS 频率控制辅助服务 ｜ MLF 边际损失因子 ｜</p>
+<p>CPT 累积价格阈值 ｜ APC 管理价格上限 ｜ LOR 储备短缺等级 ｜</p>
+<p>BESS 电池储能 ｜ VPP 虚拟电厂 ｜ DER 分布式能源 ｜ WDR 批发需求响应 ｜</p>
+<p>DUID 可调度单元标识 ｜ SoC 荷电状态 ｜ NMI 国家计量标识 ｜</p>
+<p>SCADA 实时遥测 ｜ PASA 系统充裕度预测 ｜ DNSP 配电网服务商 ｜</p>
+<p>LCOS 平准化度电成本 ｜ IRR 内部收益率 ｜ NPV 净现值 ｜ DSCR 偿债覆盖率</p>
+<h2>附录 D · 待决问题（需决策）</h2>
+<table><thead><tr><th>#</th><th>问题</th><th>影响</th></tr></thead><tbody><tr><td>D-1</td><td>模拟数据 DEMO 标识的具体呈现方式？</td><td>发布可信度（NFR-8）</td></tr><tr><td>D-2</td><td>是否商业化、是否需用户账户体系？</td><td>决定 P1 安全/认证范围</td></tr><tr><td>D-3</td><td>竞价表保留 14 天是否够？是否迁 Postgres？</td><td>运维成本与性能</td></tr><tr><td>D-4</td><td>价格告警的触达渠道（邮件/Telegram/站内）？</td><td>告警功能设计</td></tr><tr><td>D-5</td><td>新闻/公告是否需要机翻？接受失真风险吗？</td><td>i18n 策略</td></tr><tr><td>D-6</td><td>移动端优先级与范围？</td><td>排期</td></tr></tbody></table></body></html>

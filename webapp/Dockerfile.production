@@ -1,0 +1,60 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Production image — single container, two stages.
+#
+# Stage 1  (node:20-alpine)   Build the Vite / React frontend → dist/
+# Stage 2  (python:3.12-slim) Run FastAPI backend, serve the built frontend
+#                              from /app/static as StaticFiles.
+#
+# API calls (/api/*) go to FastAPI directly — no Nginx or proxy needed.
+# The frontend is compiled with VITE_API_BASE_URL="" so all fetch() calls
+# use the same origin as the page (relative URLs work out of the box).
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Stage 1: build frontend ────────────────────────────────────────────────
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /build
+
+# Install deps first for cache efficiency
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install --frozen-lockfile 2>/dev/null || npm install
+
+# Copy source
+COPY frontend/ .
+
+# Build — output goes to /build/dist
+RUN npm run build
+
+
+# ── Stage 2: production backend ────────────────────────────────────────────
+FROM python:3.12-slim
+
+# Suppress bytecode / buffer for readable container logs
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Python dependencies
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
+
+# Backend source
+COPY backend/app ./app
+
+# Procfile: honcho runs the API (web) + scraper (scheduler) as TWO processes,
+# so a scraper write-stall can never freeze the API.
+COPY backend/Procfile ./Procfile
+
+# Copy built frontend into /app/static — FastAPI's StaticFiles picks this up
+COPY --from=frontend-builder /build/dist ./static
+
+# SQLite database goes in /app/data (mount a Railway volume here)
+RUN mkdir -p /app/data
+
+EXPOSE 8000
+
+# Production: two processes via honcho — `web` (uvicorn, RUN_SCHEDULER=0) and
+# `scheduler` (app.run_scheduler). If either exits, honcho stops → Railway
+# restarts the container (pairs with the scheduler watchdog for self-healing).
+CMD ["honcho", "start"]

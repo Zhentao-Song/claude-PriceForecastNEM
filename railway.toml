@@ -2,7 +2,15 @@
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# honcho runs two processes (see webapp/backend/Procfile): web (uvicorn,
+# RUN_SCHEDULER=0) + scheduler (app.run_scheduler), so a heavy scraper write
+# can never freeze the API. (CMD in the Dockerfile is also honcho start.)
+startCommand = "honcho start"
 healthcheckPath = "/docs"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+[[volumes]]
+# Persist the SQLite database across deploys/restarts.
+mountPath = "/app/data"

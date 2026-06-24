@@ -11,7 +11,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import scheduler
 from .db import get_conn
-from .routes import bess_calc, bids, grid, paper, price_forecast, prices, stream, vpp
+from .routes import (
+    bess_calc, bids, grid, mlf, news, notices, paper, pasa, price_forecast,
+    prices, station, stream, vpp, vpp_calc, weather,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,9 +25,16 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_conn()  # initialise schema
-    scheduler.start()
+    # The scrapers (heavy SQLite writers) now run in a SEPARATE process
+    # (app.run_scheduler), so a write stall can never freeze this API process.
+    # Set RUN_SCHEDULER=0 in the API process; default "1" keeps the legacy
+    # single-process behaviour for anyone running main.py standalone.
+    run_scheduler = os.getenv("RUN_SCHEDULER", "1").strip().lower() not in ("0", "false", "no")
+    if run_scheduler:
+        scheduler.start()
     yield
-    scheduler.stop()
+    if run_scheduler:
+        scheduler.stop()
 
 
 app = FastAPI(title="NEM/WEM Live Dashboard", lifespan=lifespan)
@@ -51,8 +61,15 @@ app.include_router(grid.router)
 app.include_router(paper.router)
 app.include_router(bids.router)
 app.include_router(vpp.router)
+app.include_router(vpp_calc.router)
 app.include_router(bess_calc.router)
 app.include_router(price_forecast.router)
+app.include_router(mlf.router)
+app.include_router(pasa.router)
+app.include_router(weather.router)
+app.include_router(notices.router)
+app.include_router(news.router)
+app.include_router(station.router)
 
 
 # ── Serve bundled React frontend (production only) ────────────────────────────

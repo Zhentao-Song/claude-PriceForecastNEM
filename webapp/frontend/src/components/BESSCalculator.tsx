@@ -5,6 +5,7 @@ import type {
   BessProvenance, BessRegion, BessSensitivityRow, BessYearlyRow,
 } from '../types'
 import { useT } from '../i18n'
+import { FCASTrapeziuBuilder } from './FCASTrapeziuBuilder'
 
 /**
  * BESS-Calc — project finance modelling for a new BESS investment.
@@ -460,6 +461,16 @@ export function BESSCalculator() {
           </FieldRow>
         </CollapsibleCard>
 
+        <CollapsibleCard title={t('bc.fcasTrap.title')} defaultOpen={false}>
+          <p className="text-[11px] text-muted mb-3">
+            {t('bc.fcasTrap.hint')}
+          </p>
+          <FCASTrapeziuBuilder
+            market="RAISE6SEC"
+            powerMw={form?.power_mw ?? 1}
+          />
+        </CollapsibleCard>
+
         <button onClick={resetToDefaults}
                 className="w-full text-[11px] py-2 rounded-md border border-hairlineSoft text-muted hover:text-ink hover:border-hairline transition-colors">
           {t('bc.in.reset')}
@@ -470,7 +481,8 @@ export function BESSCalculator() {
       {/* ============================ OUTPUTS ============================ */}
       <main className="space-y-4">
         {model && <KpiRow model={model} loading={loading} t={t} />}
-        {model && <RevenueChart yearly={model.yearly} t={t} />}
+
+{model && <RevenueChart yearly={model.yearly} t={t} />}
         {model && model.sensitivity.length > 0 && <TornadoChart rows={model.sensitivity} t={t} />}
         {model && <DscrCurve yearly={model.yearly} t={t} />}
         {model && <CashflowTable yearly={model.yearly} t={t} />}
