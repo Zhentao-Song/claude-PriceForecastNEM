@@ -61,6 +61,15 @@ def log_forecasts(region: str = "NSW1") -> int:
 
 # ── Boot-time backtest seed ──────────────────────────────────────────────────
 
+# Models whose day-ahead vintage we can HONESTLY reconstruct from history at a
+# past as-of (they only use actuals before the cutoff). The AEMO benchmark is
+# excluded: the live predispatch table only retains a near-nowcast for past
+# targets, so "seeding" it would fabricate an unrealistically accurate AEMO and
+# bias the comparison. AEMO comes only from the forward logger (genuine
+# day-ahead vintage) and the archive backfill (true historical day-ahead).
+_SEEDABLE = ("ours", "naive")
+
+
 def seed_recent(region: str = "NSW1", days: int = SEED_DAYS) -> int:
     """Backtest the last `days` complete days so the accuracy panel has data
     immediately. For each target day D we stand at D 00:00 (NEM) and let each
@@ -76,6 +85,8 @@ def seed_recent(region: str = "NSW1", days: int = SEED_DAYS) -> int:
             targets = [day_start + timedelta(minutes=30 * (i + 1)) for i in range(HORIZON_HH)]
             made = data.fmt(asof)
             for m in active_models():
+                if m.name not in _SEEDABLE:
+                    continue
                 try:
                     preds = m.predict(con, region, targets, asof=asof)
                 except Exception:
