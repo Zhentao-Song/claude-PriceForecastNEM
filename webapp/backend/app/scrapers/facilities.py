@@ -17,8 +17,9 @@ leaderboard. It also refreshes `nem_mlf` each run — when AEMO's next-FY loss
 factors take effect (July 1), the new archive month carries them automatically.
 
 The archive lags ~1-2 months, which is fine: registration data changes slowly.
-URL quirk: AEMO directory listings HTML-encode '#' as %2523 (double-encoded);
-fetching with the literal %2523 in the path is what actually works.
+URL quirk: the file names contain literal '#', URL-encoded as %23 in the path.
+httpx 0.28+ sends a literal %23 correctly (verified %23 → HTTP 200, %2523 → 404
+on 2026-06); an older httpx needed the %2523 double-encode, now removed.
 """
 from __future__ import annotations
 
@@ -47,7 +48,7 @@ NEM_REGIONS = {"NSW1", "QLD1", "VIC1", "SA1", "TAS1"}
 
 def _archive_url(table: str, year: int, month: int) -> str:
     base = _ARCHIVE_BASE.format(year=year, month=month)
-    return f"{base}PUBLIC_ARCHIVE%2523{table}%2523FILE01%2523{year}{month:02d}010000.zip"
+    return f"{base}PUBLIC_ARCHIVE%23{table}%23FILE01%23{year}{month:02d}010000.zip"
 
 
 def map_fuel(co2e_source: str | None) -> str | None:
