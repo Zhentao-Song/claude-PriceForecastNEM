@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import data
+from . import weather
 
 log = logging.getLogger("forecast.models")
 
@@ -128,8 +129,8 @@ class ResidualModel(ForecastModel):
 
     _AEMO_W = 0.55          # weight on the haircut-corrected AEMO anchor
     _SPIKE_PRIOR = 0.20     # min fraction of above-threshold excess to discount
-    _DEMAND_GAIN = 0.25     # sensitivity of the demand nudge
-    _DEMAND_CLAMP = (0.85, 1.25)
+    _CAL_DAYS = 14          # recent window for weather calibration
+    _GHI_SLOPE_CLAMP = 0.08 # max |$/MWh per W/m^2| solar suppression
 
     def predict(self, con, region, targets, asof=None):
         if not targets:
@@ -163,48 +164,77 @@ class ResidualModel(ForecastModel):
             aemo.setdefault(t, v)
         slope = self._haircut_slope(con, region, asof, thresh)
 
-        demand = data.fetch_pred_demand_hh(con, region, targets)
-        dem_ref = data.recent_demand_median(con, region, asof)
-
-        out: dict[datetime, float] = {}
-        for t in targets:
-            comps: list[tuple[float, float]] = []  # (weight, value)
-            w1 = hist.get(t - timedelta(days=7))
-            w2 = hist.get(t - timedelta(days=14))
-            d1 = hist.get(t - timedelta(days=1))
-            rh = recent_by_hour.get(t.hour)
-            if w1 is not None:
-                comps.append((self._W_WEEK1, w1))
-            if w2 is not None:
-                comps.append((self._W_WEEK2, w2))
-            if d1 is not None:
-                comps.append((self._W_DAY, d1))
-            if rh is not None:
-                comps.append((self._W_RECENT, rh))
+        # Actuals-only ensemble (weekly + daily + recent-hour level).
+        def _blend(t: datetime):
+            comps = [
+                (self._W_WEEK1, hist.get(t - timedelta(days=7))),
+                (self._W_WEEK2, hist.get(t - timedelta(days=14))),
+                (self._W_DAY, hist.get(t - timedelta(days=1))),
+                (self._W_RECENT, recent_by_hour.get(t.hour)),
+            ]
+            comps = [(w, v) for w, v in comps if v is not None]
             if comps:
                 tw = sum(w for w, _ in comps)
-                blend = sum(w * v for w, v in comps) / tw
-            elif last is not None:
-                blend = last
-            else:
-                continue
+                return sum(w * v for w, v in comps) / tw
+            return last
 
-            # Forward demand nudge on the ensemble component.
-            dem = demand.get(t)
-            if dem is not None and dem_ref:
-                f = 1.0 + self._DEMAND_GAIN * (dem / dem_ref - 1.0)
-                f = min(self._DEMAND_CLAMP[1], max(self._DEMAND_CLAMP[0], f))
-                blend *= f
+        # ── Weather feature: solar radiation (Open-Meteo, cached) ────────────
+        # Foundation for the ML model; on winter NSW data its marginal effect is
+        # small (the ensemble already captures the seasonal solar shape), but it
+        # helps on high-solar-variance summer days and is calibrated from recent
+        # residuals so it can never run away.
+        rstart = asof - timedelta(days=self._CAL_DAYS)
+        wx = weather.fetch_weather_hh(con, region, min(targets), max(targets))
+        wx_recent = weather.fetch_weather_hh(con, region, rstart, asof)
+        ghi_recent = [v[1] for v in wx_recent.values() if v[1] is not None]
+        ghi_mean = sum(ghi_recent) / len(ghi_recent) if ghi_recent else 0.0
+        g_slope = self._ghi_slope(hist, wx_recent, _blend, ghi_mean)
 
+        def _raw(t: datetime):
+            b = _blend(t)
+            if b is None:
+                return None
+            g = wx.get(t)
+            if g is not None and g[1] is not None:
+                b += g_slope * (g[1] - ghi_mean)           # solar suppression
             a = aemo.get(t)
             if a is not None:
-                excess = max(0.0, a - thresh)          # the spiky part
-                a_corr = a - slope * excess            # discount it (CSIRO)
-                pred = self._AEMO_W * a_corr + (1 - self._AEMO_W) * blend
-            else:
-                pred = blend
-            out[t] = round(data.clip(pred), 2)
+                a_corr = a - slope * max(0.0, a - thresh)  # spike haircut (CSIRO)
+                return self._AEMO_W * a_corr + (1 - self._AEMO_W) * b
+            return b
+
+        # NOTE: a trailing-window bias recentre was tried and dropped — in a
+        # trending market it lags and makes accuracy worse. The honest residual
+        # level error is left for the ML model to learn properly.
+        out: dict[datetime, float] = {}
+        for t in targets:
+            r = _raw(t)
+            if r is None:
+                continue
+            out[t] = round(data.clip(r), 2)
         return out
+
+    def _ghi_slope(self, hist, wx_recent, blend_fn, ghi_mean) -> float:
+        """Slope of (actual − ensemble) on solar radiation, over the recent
+        window — how much each W/m² of GHI moves price away from the level
+        baseline. Expected ≤ 0 (more sun → lower price). Clamped for safety."""
+        num = den = 0.0
+        for t, (temp, ghi, wind) in wx_recent.items():
+            if ghi is None:
+                continue
+            a = hist.get(t)
+            if a is None:
+                continue
+            b = blend_fn(t)
+            if b is None:
+                continue
+            dg = ghi - ghi_mean
+            num += dg * (a - b)
+            den += dg * dg
+        if den <= 0:
+            return 0.0
+        s = num / den
+        return max(-self._GHI_SLOPE_CLAMP, min(self._GHI_SLOPE_CLAMP, s))
 
     def _haircut_slope(self, con, region, asof, thresh) -> float:
         """Fraction of AEMO's above-threshold 'excess' that is overstated,

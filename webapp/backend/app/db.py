@@ -216,6 +216,21 @@ def _init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_forecast_eval_lookup
             ON forecast_eval(regionid, model, target_datetime);
 
+        -- ===== Weather cache (Open-Meteo) =================================
+        -- Hourly weather for each region's representative load centre, used as
+        -- exogenous features by the forecast models (solar radiation suppresses
+        -- price, temperature drives demand). Cached so we hit Open-Meteo once
+        -- per (region, hour): archive API fills history, forecast API the
+        -- future. Free, no API key.
+        CREATE TABLE IF NOT EXISTS weather_cache (
+            regionid TEXT NOT NULL,
+            datetime TIMESTAMP NOT NULL,   -- hourly, NEM time (UTC+10)
+            temp_c REAL,
+            ghi REAL,                      -- shortwave radiation W/m^2
+            wind_kmh REAL,
+            PRIMARY KEY (regionid, datetime)
+        );
+
         -- ===== AEMO ST PASA — Short-Term Projected Assessment of System Adequacy
         -- Published hourly on NEMWeb (Short_Term_PASA_Reports). Covers the next
         -- 14 days at 30-min interval resolution. Keyed by (interval, region);
