@@ -4,9 +4,13 @@ type Props = { generatedAt: string | null; live: boolean }
 
 function fmt(iso: string | null, lang: string): string {
   if (!iso) return '—'
-  // Use the AU locale for both languages — same numeric layout, no awkward
-  // re-translation of months. Time is the same regardless.
-  return new Date(iso).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-AU', { hour12: false })
+  // Backend sends a NAIVE UTC timestamp (datetime.utcnow().isoformat(), no 'Z').
+  // Append 'Z' so JS parses it as UTC, then render in NEM market time
+  // (Australia/Brisbane = UTC+10, no DST) so it matches the dispatch clock.
+  const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
+  return d.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-AU', {
+    hour12: false, timeZone: 'Australia/Brisbane',
+  })
 }
 
 export function Header({ generatedAt, live }: Props) {
@@ -24,6 +28,7 @@ export function Header({ generatedAt, live }: Props) {
         <div className="flex items-center gap-5 text-[12px]">
           <span className="text-muted tabular-nums">
             {t('header.updated')} <span className="text-ink2">{fmt(generatedAt, lang)}</span>
+            <span className="ml-1 text-[10px] text-muted">NEM</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span
