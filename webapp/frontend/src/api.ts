@@ -3,6 +3,7 @@ import type {
   BessBacktestRequest, BessBacktestResponse,
   BessDefaultsResponse, BessModelResponse, BessRegion,
   Bid, BidIn, BessState, BidStack, Constraints, DispatchPlan, FCASMatrix, Fill, Forecast,
+  ForecastAccuracy, ForecastSeries,
   GeneratorsSnapshot, GridSnapshot, Heatmap, History, MarketCatalog, OHLCData,
   MLFResponse, MLFRegionsResponse,
   NemWeather, NextIntervals, PaperAnalytics, PaperBidBatchResult, PriceForecast, Snapshot, STPASAResponse, STPASASummary, Timeline,
@@ -380,6 +381,24 @@ export async function startBessBackfill(lookbackDays = 400): Promise<{
 export async function fetchPriceForecast(region: string): Promise<PriceForecast> {
   const r = await fetch(`${BASE}/price-forecast?region=${encodeURIComponent(region)}`)
   if (!r.ok) throw new Error(`price-forecast ${r.status}`)
+  return r.json()
+}
+
+export async function fetchForecastSeries(
+  region: string, pastHours = 12,
+): Promise<ForecastSeries> {
+  const r = await fetch(
+    `${BASE}/forecast/series?region=${encodeURIComponent(region)}&past_hours=${pastHours}`)
+  if (!r.ok) throw new Error(`forecast-series ${r.status}`)
+  return r.json()
+}
+
+export async function fetchForecastAccuracy(
+  region: string, windowDays = 30,
+): Promise<ForecastAccuracy> {
+  const r = await fetch(
+    `${BASE}/forecast/accuracy?region=${encodeURIComponent(region)}&window_days=${windowDays}`)
+  if (!r.ok) throw new Error(`forecast-accuracy ${r.status}`)
   return r.json()
 }
 

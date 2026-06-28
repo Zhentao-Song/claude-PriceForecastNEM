@@ -12,8 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from . import scheduler
 from .db import get_conn
 from .routes import (
-    bess_calc, bids, grid, mlf, news, notices, paper, pasa, price_forecast,
-    prices, station, stream, vpp, vpp_calc, weather,
+    bess_calc, bids, forecast, grid, mlf, news, notices, paper, pasa,
+    price_forecast, prices, station, stream, vpp, vpp_calc, weather,
 )
 
 logging.basicConfig(
@@ -64,6 +64,7 @@ app.include_router(vpp.router)
 app.include_router(vpp_calc.router)
 app.include_router(bess_calc.router)
 app.include_router(price_forecast.router)
+app.include_router(forecast.router)
 app.include_router(mlf.router)
 app.include_router(pasa.router)
 app.include_router(weather.router)

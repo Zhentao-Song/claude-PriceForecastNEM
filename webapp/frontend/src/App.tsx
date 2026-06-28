@@ -32,6 +32,8 @@ const IntroLanding = lazy(() =>
   import('./components/IntroLanding').then((m) => ({ default: m.IntroLanding })))
 const VPPCalc = lazy(() =>
   import('./components/VPPCalc').then((m) => ({ default: m.VPPCalc })))
+const ForecastView = lazy(() =>
+  import('./components/ForecastView').then((m) => ({ default: m.ForecastView })))
 import { WeatherPanel } from './components/WeatherPanel'
 import { FuelMixLive } from './components/FuelMixLive'
 import { CandlestickChart } from './components/CandlestickChart'
@@ -50,7 +52,7 @@ function ViewLoading() {
   )
 }
 
-type View = 'nem' | 'nsw' | 'vpp' | 'vpp-calc' | 'bess-calc' | 'stations' | 'news'
+type View = 'nem' | 'nsw' | 'forecast' | 'vpp' | 'vpp-calc' | 'bess-calc' | 'stations' | 'news'
 
 export default function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null)
@@ -207,6 +209,7 @@ export default function App() {
             <h1 className="text-[28px] font-semibold tracking-tight text-ink leading-tight">
               {view === 'nem' ? t('intro.titleNem')
                : view === 'nsw' ? t('intro.titleNsw')
+               : view === 'forecast' ? t('intro.titleForecast')
                : view === 'bess-calc' ? t('intro.titleBessCalc')
                : view === 'stations' ? t('intro.titleStations')
                : view === 'news' ? t('intro.titleNews')
@@ -216,6 +219,7 @@ export default function App() {
             <p className="text-[15px] text-ink2 mt-2">
               {view === 'nem' ? t('intro.subtitleNem')
                : view === 'nsw' ? t('intro.subtitleNsw')
+               : view === 'forecast' ? t('intro.subtitleForecast')
                : view === 'bess-calc' ? t('intro.subtitleBessCalc')
                : view === 'stations' ? t('intro.subtitleStations')
                : view === 'news' ? t('intro.subtitleNews')
@@ -227,6 +231,7 @@ export default function App() {
             {([
               { k: 'nem' as View, label: t('nav.allNem') },
               { k: 'nsw' as View, label: t('nav.nswDeepDive') },
+              { k: 'forecast' as View, label: t('nav.forecast') },
               { k: 'bess-calc' as View, label: t('nav.bessCalc') },
               { k: 'vpp' as View, label: t('nav.vpp') },
               { k: 'vpp-calc' as View, label: t('nav.vppCalc') },
@@ -250,6 +255,8 @@ export default function App() {
 
         {view === 'nsw' ? (
           <Suspense fallback={<ViewLoading />}><NSWDeepDive snap={snap} generators={gens} grid={grid} /></Suspense>
+        ) : view === 'forecast' ? (
+          <Suspense fallback={<ViewLoading />}><ForecastView /></Suspense>
         ) : view === 'vpp' ? (
           <Suspense fallback={<ViewLoading />}><VPPConsole /></Suspense>
         ) : view === 'bess-calc' ? (

@@ -198,6 +198,24 @@ def _init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_predispatch_run
             ON nem_predispatch_price(source, run_datetime DESC);
 
+        -- ===== Forecast evaluation (Forecast page) ========================
+        -- One row per (target half-hour, region, model) holding that model's
+        -- LOCKED day-ahead vintage prediction ($/MWh). Written by the forecast
+        -- subsystem (app/forecast): INSERT OR IGNORE so the first vintage seen
+        -- (~24h ahead) is frozen and never overwritten — accuracy stays
+        -- genuinely out-of-sample. Actuals are joined from nem_dispatch_price
+        -- at read time. `model` ∈ {aemo, ours, naive, amber, ...}.
+        CREATE TABLE IF NOT EXISTS forecast_eval (
+            target_datetime TIMESTAMP NOT NULL,   -- half-hour END, NEM time
+            regionid TEXT NOT NULL,
+            model TEXT NOT NULL,
+            predicted_rrp REAL,
+            made_at TIMESTAMP NOT NULL,           -- when this vintage was logged
+            PRIMARY KEY (target_datetime, regionid, model)
+        );
+        CREATE INDEX IF NOT EXISTS idx_forecast_eval_lookup
+            ON forecast_eval(regionid, model, target_datetime);
+
         -- ===== AEMO ST PASA — Short-Term Projected Assessment of System Adequacy
         -- Published hourly on NEMWeb (Short_Term_PASA_Reports). Covers the next
         -- 14 days at 30-min interval resolution. Keyed by (interval, region);

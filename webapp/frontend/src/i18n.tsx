@@ -993,6 +993,29 @@ const DICT: Record<string, { en: string; zh: string }> = {
   // News page
   'nav.news':            { en: 'News',                                     zh: '资讯' },
   'nav.vppCalc':         { en: 'VPP-Calc',                                  zh: 'VPP 测算' },
+  'nav.forecast':        { en: 'Forecast',                                  zh: '价格预测' },
+
+  // Forecast page
+  'intro.titleForecast':    { en: 'Price Forecast — who calls it best?',    zh: '价格预测 — 谁更准？' },
+  'intro.subtitleForecast': { en: 'NSW day-ahead spot price: AEMO vs our model vs baselines, scored against actuals', zh: 'NSW 日前现货价：AEMO、自研模型、基准三方对比，并用实际值打分谁更准' },
+  'forecast.chartTitle':  { en: 'Day-ahead price forecast vs actual',       zh: '日前价格预测 vs 实际' },
+  'forecast.chartSub':    { en: 'Next 24h at 30-min resolution. Dashed = AEMO benchmark with ±1σ band; solid black = actual cleared price', zh: '未来 24 小时,30 分钟粒度。虚线 = AEMO 基准(含 ±1σ 带);黑实线 = 实际出清价' },
+  'forecast.now':         { en: 'now',                                       zh: '现在' },
+  'forecast.actual':      { en: 'Actual',                                    zh: '实际' },
+  'forecast.accTitle':    { en: 'Forecast accuracy — scored vs actuals',     zh: '预测准确度 — 对实际值打分' },
+  'forecast.accSub':      { en: 'Out-of-sample, locked day-ahead vintages. Lower MAE/RMSE is better; skill is vs the AEMO benchmark', zh: '样本外、锁定的日前预测。MAE/RMSE 越低越好;skill 是相对 AEMO 基准的提升' },
+  'forecast.accEmpty':    { en: 'Accuracy data is still accumulating — check back after a few forecast cycles.', zh: '准确度数据仍在积累中 — 过几个预测周期后再来看。' },
+  'forecast.loadError':   { en: 'Could not load the forecast.',              zh: '预测数据加载失败。' },
+  'forecast.days':        { en: 'd',                                         zh: '天' },
+  'forecast.model':       { en: 'Model',                                     zh: '模型' },
+  'forecast.bias':        { en: 'Bias',                                      zh: '偏差' },
+  'forecast.skill':       { en: 'Skill',                                     zh: 'Skill' },
+  'forecast.benchmark':   { en: 'benchmark',                                 zh: '基准' },
+  'forecast.winner':      { en: 'Best in window',                            zh: '本窗口最优' },
+  'forecast.skillNote':   { en: 'Skill = 1 − model RMSE / AEMO RMSE. Positive means it beats AEMO; bias <0 means it under-forecasts.', zh: 'Skill = 1 − 模型 RMSE / AEMO RMSE。为正即跑赢 AEMO;偏差 <0 表示系统性低估。' },
+  'forecast.rmseTitle':   { en: 'RMSE by model (lower is better)',           zh: '各模型 RMSE(越低越好)' },
+  'forecast.byHourTitle': { en: 'Error (MAE) by hour of day',                zh: '按小时的误差(MAE)' },
+  'forecast.eveningPeak': { en: 'evening peak',                              zh: '傍晚高峰' },
 
   // VPP-Calc page
   'intro.titleVppCalc':  { en: 'Join a VPP — what is it worth?',            zh: '加入 VPP，到底多赚多少？' },

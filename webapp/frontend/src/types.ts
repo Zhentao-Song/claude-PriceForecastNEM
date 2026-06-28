@@ -935,6 +935,49 @@ export type PriceForecast = {
   n_historical_errors: number
 }
 
+// ── Forecast page (multi-model NSW day-ahead comparison) ───────────────────
+export type ForecastSeriesPoint = {
+  t: string
+  rrp: number
+  // Uncertainty band — present only on the AEMO benchmark model.
+  p10?: number; p25?: number; p75?: number; p90?: number
+}
+export type ForecastModelSeries = {
+  name: string
+  label: string
+  color: string
+  is_benchmark: boolean
+  points: ForecastSeriesPoint[]
+}
+export type ForecastActual = { t: string; rrp: number }
+export type ForecastSeries = {
+  region: string
+  now: string
+  actuals: ForecastActual[]
+  models: ForecastModelSeries[]
+  aemo_error_std: number
+  aemo_bias: number
+}
+export type ForecastModelAccuracy = {
+  name: string; label: string; color: string; is_benchmark: boolean
+  n: number
+  mae: number | null
+  rmse: number | null
+  smape: number | null
+  bias: number | null
+  skill: number | null            // 1 − rmse/benchmark_rmse (null for benchmark)
+  by_hour: (number | null)[]       // 24 buckets of MAE
+}
+export type ForecastAccuracy = {
+  region: string
+  window_days: number
+  benchmark: string
+  winner: string | null
+  models: ForecastModelAccuracy[]
+  generated_at: string
+  evening_peak: [number, number]   // [startHour, endHour] high-volatility band
+}
+
 export type BessBacktestFcas = {
   annual_revenue_aud: number
   per_mw_year_after_util: number

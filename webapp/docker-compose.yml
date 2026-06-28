@@ -12,6 +12,11 @@ services:
       # a write stall can never freeze this process. Reads use WAL (concurrent
       # with the scheduler's writes across processes).
       - RUN_SCHEDULER=0
+      # Optional Amber Electric third-party forecast. Leave unset to hide the
+      # Amber line; set the token in a .env file (never committed) to light it
+      # up. The API process reads it for the /api/forecast/series live call.
+      - AMBER_API_TOKEN=${AMBER_API_TOKEN:-}
+      - AMBER_SITE_ID=${AMBER_SITE_ID:-}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
@@ -24,6 +29,11 @@ services:
     volumes:
       - ./backend/app:/app/app:ro
       - backend_data:/app/data
+    environment:
+      # Same Amber passthrough as the API: the scheduler reads it when logging
+      # the day-ahead forecast vintage so Amber gets scored too.
+      - AMBER_API_TOKEN=${AMBER_API_TOKEN:-}
+      - AMBER_SITE_ID=${AMBER_SITE_ID:-}
     command: python -m app.run_scheduler
     restart: unless-stopped
 

@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from . import paper, vpp_settle, vpp_telemetry
 from .config import POLL_INTERVAL_SECONDS
 from .db import locked_conn
+from .forecast import eval as fc_eval
 from .scrapers import (
     backfill, bids, facilities, market_notices, nem, news, predispatch, pasa,
     rooftop_pv, scada, wem,
@@ -22,6 +23,7 @@ _scheduler: AsyncIOScheduler | None = None
 _latest_status: dict = {
     "nem": {}, "wem": {}, "scada": {}, "predispatch": {}, "bids": {}, "pasa": {},
     "rooftop_pv": {}, "facilities": {}, "market_notices": {}, "news": {},
+    "forecast": {},
 }
 
 # Liveness heartbeat: updated at the end of every NEM tick (every 60s). The
@@ -215,6 +217,19 @@ async def _tick_bids() -> None:
         _latest_status["bids"] = {"error": str(e)}
 
 
+async def _tick_forecast_log() -> None:
+    """Record each forecast model's day-ahead vintage for the next 24h (NSW1).
+    Off-loaded to a thread so the DB work never blocks the event loop. INSERT
+    OR IGNORE locks the first vintage seen per target, keeping accuracy
+    genuinely out-of-sample."""
+    try:
+        n = await asyncio.to_thread(fc_eval.log_forecasts, "NSW1")
+        _latest_status["forecast"] = {"logged": n}
+    except Exception as e:
+        log.exception("forecast log tick failed")
+        _latest_status["forecast"] = {"error": str(e)}
+
+
 def start() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -267,6 +282,12 @@ def start() -> None:
         _tick_news, "interval",
         seconds=3600, id="news", max_instances=1,
     )
+    # Forecast vintage logging: every 30 min, mirroring AEMO's PREDISPATCH
+    # cadence so each target's day-ahead vintage gets locked on first sight.
+    _scheduler.add_job(
+        _tick_forecast_log, "interval",
+        seconds=1800, id="forecast", max_instances=1,
+    )
     _scheduler.start()
 
     # Stagger initial ticks so all scrapers don't hammer AEMO simultaneously
@@ -318,6 +339,14 @@ def start() -> None:
         # Heatmap and 7-day chart views need historical depth. Backfill runs
         # last, after live scrapers are stable.
         await _maybe_backfill()
+        # Forecast page: seed the accuracy panel with a day-ahead backtest of
+        # the last week (so it's non-empty on first boot), then log the first
+        # live vintage. Runs after backfill so actuals exist to backtest on.
+        try:
+            await asyncio.to_thread(fc_eval.seed_recent, "NSW1", 7)
+            await _tick_forecast_log()
+        except Exception:
+            log.exception("forecast seed/log failed")
 
     asyncio.create_task(_staggered_start())
 
