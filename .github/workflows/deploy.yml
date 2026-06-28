@@ -1,0 +1,72 @@
+name: Deploy to Volcengine
+
+# Push to main → SSH into the server and run the same steps you do by hand
+# (git pull → docker build → docker run). Also runnable manually from the
+# Actions tab (workflow_dispatch).
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST      server IP, e.g. 101.47.15.214
+#   DEPLOY_USER      ssh user, e.g. root
+#   DEPLOY_SSH_KEY   the PRIVATE key of a deploy keypair (its public key goes
+#                    in the server's ~/.ssh/authorized_keys)
+# Optional:
+#   DEPLOY_PORT          ssh port (defaults to 22)
+#   DEPLOY_PATH          repo path on the server (defaults to ~/claude-PriceForecastNEM)
+#   AMBER_API_TOKEN      lights up the Amber forecast line if set
+#   FORECAST_BACKFILL_WEEKS  if set (>0), auto-triggers the day-ahead backfill
+#                            after deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          AMBER_API_TOKEN: ${{ secrets.AMBER_API_TOKEN }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          BACKFILL_WEEKS: ${{ secrets.FORECAST_BACKFILL_WEEKS }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          command_timeout: 40m
+          envs: AMBER_API_TOKEN,DEPLOY_PATH,BACKFILL_WEEKS
+          script: |
+            set -e
+            cd "${DEPLOY_PATH:-$HOME/claude-PriceForecastNEM}"
+            echo "==> Pulling latest main"
+            git fetch --all --prune
+            git reset --hard origin/main
+            echo "==> Building image"
+            docker build -t nemwem -f Dockerfile .
+            echo "==> Restarting container"
+            docker rm -f nemwem 2>/dev/null || true
+            docker run -d --name nemwem -p 8000:8000 \
+              -v nemwem_data:/app/data \
+              -e PORT=8000 \
+              -e AMBER_API_TOKEN="${AMBER_API_TOKEN:-}" \
+              --restart unless-stopped \
+              nemwem
+            echo "==> Pruning old images"
+            docker image prune -f
+            # Wait for the API, then optionally trigger the day-ahead backfill.
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:8000/docs >/dev/null 2>&1; then break; fi
+              sleep 2
+            done
+            if [ -n "${BACKFILL_WEEKS:-}" ] && [ "${BACKFILL_WEEKS}" != "0" ]; then
+              echo "==> Triggering forecast backfill (${BACKFILL_WEEKS} weeks)"
+              curl -s -X POST "http://localhost:8000/api/forecast/backfill?weeks=${BACKFILL_WEEKS}" || true
+            fi
+            echo "==> Done"
