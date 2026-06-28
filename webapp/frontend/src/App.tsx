@@ -230,8 +230,8 @@ export default function App() {
           <div className="flex gap-1 p-0.5 bg-surfaceAlt rounded-lg shrink-0">
             {([
               { k: 'nem' as View, label: t('nav.allNem') },
-              { k: 'nsw' as View, label: t('nav.nswDeepDive') },
               { k: 'forecast' as View, label: t('nav.forecast') },
+              { k: 'nsw' as View, label: t('nav.nswDeepDive') },
               { k: 'bess-calc' as View, label: t('nav.bessCalc') },
               { k: 'vpp' as View, label: t('nav.vpp') },
               { k: 'vpp-calc' as View, label: t('nav.vppCalc') },
