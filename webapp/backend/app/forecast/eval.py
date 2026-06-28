@@ -110,6 +110,11 @@ def seed_recent(region: str = "NSW1", days: int = SEED_DAYS) -> int:
 # ── Accuracy metrics ─────────────────────────────────────────────────────────
 
 def accuracy(region: str = "NSW1", window_days: int = 30) -> dict:
+    """Fair, apples-to-apples accuracy. Every model is scored on the SAME set of
+    intervals — those where an actual exists AND every compared model has a
+    prediction. This matters because AEMO predispatch only reaches the end of
+    the next trading day, so its day-ahead coverage is partial; scoring each
+    model on its own (different) targets would compare apples to oranges."""
     now = data.nem_now()
     start = now - timedelta(days=window_days)
 
@@ -125,56 +130,71 @@ def accuracy(region: str = "NSW1", window_days: int = 30) -> dict:
             (region, data.fmt(start), data.fmt(now)),
         ).fetchall()
 
-    # model -> list of (actual, pred, hour)
-    pairs: dict[str, list[tuple[float, float, int]]] = {}
+    # model -> {target_dt: pred}
+    preds: dict[str, dict] = {}
     for model, t, pred in rows:
-        td = data._as_dt(t)
-        a = actuals.get(td)
-        if a is None:
-            continue
-        pairs.setdefault(model, []).append((a, float(pred), td.hour))
+        preds.setdefault(model, {})[data._as_dt(t)] = float(pred)
 
-    models_meta = {m.name: m for m in active_models()}
     bench = benchmark().name
-    bench_rmse = _rmse(pairs.get(bench, []))
+    # Each model's own coverage (intervals where it has a pred AND an actual).
+    coverage = {
+        name: sum(1 for t in pm if t in actuals)
+        for name, pm in preds.items()
+    }
+    # Compared models = active models that actually have predictions. The common
+    # target set is the intersection of their targets ∩ actuals.
+    compare = [m for m in active_models() if coverage.get(m.name, 0) > 0]
+    common: set = set(actuals)
+    for m in compare:
+        common &= set(preds[m.name])
+    common_sorted = sorted(common)
+    n_common = len(common_sorted)
+
+    def _metrics(name: str):
+        pm = preds.get(name, {})
+        trip = [(actuals[t], pm[t], t.hour) for t in common_sorted if t in pm]
+        if not trip:
+            return None
+        errs = [pr - ac for ac, pr, _ in trip]
+        mae = sum(abs(e) for e in errs) / len(errs)
+        rmse = _rmse(trip)
+        bias = sum(errs) / len(errs)
+        smape = 100.0 * sum(
+            abs(pr - ac) / ((abs(ac) + abs(pr)) / 2 + 1e-9) for ac, pr, _ in trip
+        ) / len(trip)
+        by_hour_acc: list[list[float]] = [[] for _ in range(24)]
+        for ac, pr, h in trip:
+            by_hour_acc[h].append(abs(pr - ac))
+        by_hour = [round(sum(v) / len(v), 1) if v else None for v in by_hour_acc]
+        return mae, rmse, bias, smape, by_hour
+
+    bench_m = _metrics(bench) if bench in {m.name for m in compare} else None
+    bench_rmse = bench_m[1] if bench_m else 0.0
 
     out_models = []
     for m in active_models():
-        p = pairs.get(m.name, [])
-        if not p:
+        res = _metrics(m.name) if m.name in {c.name for c in compare} else None
+        if res is None:
             out_models.append({
                 "name": m.name, "label": m.label, "color": m.color,
                 "is_benchmark": m.is_benchmark, "n": 0,
+                "n_total": coverage.get(m.name, 0),
                 "mae": None, "rmse": None, "smape": None, "bias": None,
                 "skill": None, "by_hour": [None] * 24,
             })
             continue
-        errs = [pred - act for act, pred, _ in p]
-        abserr = [abs(e) for e in errs]
-        mae = sum(abserr) / len(abserr)
-        rmse = _rmse(p)
-        bias = sum(errs) / len(errs)
-        smape = 100.0 * sum(
-            abs(pred - act) / ((abs(act) + abs(pred)) / 2 + 1e-9)
-            for act, pred, _ in p
-        ) / len(p)
+        mae, rmse, bias, smape, by_hour = res
         skill = (1.0 - rmse / bench_rmse) if (bench_rmse and not m.is_benchmark) else None
-
-        by_hour_acc: list[list[float]] = [[] for _ in range(24)]
-        for act, pred, h in p:
-            by_hour_acc[h].append(abs(pred - act))
-        by_hour = [round(sum(v) / len(v), 1) if v else None for v in by_hour_acc]
-
         out_models.append({
             "name": m.name, "label": m.label, "color": m.color,
-            "is_benchmark": m.is_benchmark, "n": len(p),
+            "is_benchmark": m.is_benchmark, "n": n_common,
+            "n_total": coverage.get(m.name, 0),
             "mae": round(mae, 2), "rmse": round(rmse, 2),
             "smape": round(smape, 1), "bias": round(bias, 2),
             "skill": round(skill, 3) if skill is not None else None,
             "by_hour": by_hour,
         })
 
-    # Winner = lowest RMSE among models that have data.
     rated = [m for m in out_models if m["rmse"] is not None]
     winner = min(rated, key=lambda m: m["rmse"])["name"] if rated else None
 
@@ -183,6 +203,7 @@ def accuracy(region: str = "NSW1", window_days: int = 30) -> dict:
         "window_days": window_days,
         "benchmark": bench,
         "winner": winner,
+        "n_common": n_common,        # intervals all models share (the fair set)
         "models": out_models,
         "generated_at": data.fmt(now),
         # peak-volatility window the UI highlights

@@ -152,7 +152,10 @@ export function ForecastView() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-[15px] font-semibold text-ink">{t('forecast.accTitle')}</h2>
-            <p className="text-[12px] text-muted">{t('forecast.accSub')}</p>
+            <p className="text-[12px] text-muted">
+              {t('forecast.accSub')}
+              {acc && acc.n_common > 0 && ` · ${acc.n_common} ${t('forecast.commonPts')}`}
+            </p>
           </div>
           <div className="flex gap-1 p-0.5 bg-surfaceAlt rounded-lg shrink-0">
             {([7, 30] as const).map((w) => (
@@ -181,7 +184,7 @@ export function ForecastView() {
                     <th className="text-right font-medium py-1.5 px-3">sMAPE</th>
                     <th className="text-right font-medium py-1.5 px-3">{t('forecast.bias')}</th>
                     <th className="text-right font-medium py-1.5 px-3">{t('forecast.skill')}</th>
-                    <th className="text-right font-medium py-1.5 pl-3">n</th>
+                    <th className="text-right font-medium py-1.5 pl-3">{t('forecast.coverage')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -210,7 +213,7 @@ export function ForecastView() {
                           style={{ color: m.skill == null ? MUTED : m.skill > 0 ? '#34c759' : '#ff3b30' }}>
                           {m.skill == null ? '—' : `${m.skill > 0 ? '+' : ''}${(m.skill * 100).toFixed(0)}%`}
                         </td>
-                        <td className="text-right tabular-nums pl-3 text-muted">{m.n}</td>
+                        <td className="text-right tabular-nums pl-3 text-muted" title={t('forecast.coverageHint')}>{m.n_total}</td>
                       </tr>
                     )
                   })}

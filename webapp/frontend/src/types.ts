@@ -960,7 +960,8 @@ export type ForecastSeries = {
 }
 export type ForecastModelAccuracy = {
   name: string; label: string; color: string; is_benchmark: boolean
-  n: number
+  n: number            // common intervals scored (equal across models)
+  n_total: number      // this model's own coverage in the window
   mae: number | null
   rmse: number | null
   smape: number | null
@@ -973,6 +974,7 @@ export type ForecastAccuracy = {
   window_days: number
   benchmark: string
   winner: string | null
+  n_common: number                 // intervals all models share (fair-compare set)
   models: ForecastModelAccuracy[]
   generated_at: string
   evening_peak: [number, number]   // [startHour, endHour] high-volatility band
