@@ -55,3 +55,20 @@ def post_forecast_backfill(
 @router.get("/api/forecast/backfill/status")
 def get_forecast_backfill_status():
     return fc_backfill.get_state()
+
+
+@router.post("/api/forecast/reseed")
+def post_forecast_reseed(
+    days: int = Query(35, ge=1, le=120,
+                      description="Days of day-ahead backtest to (re)state"),
+    replace: bool = Query(True, description="Overwrite existing seedable rows"),
+    region: str = Query("NSW1"),
+):
+    """Re-state the seedable models (ours/naive/ml) over the recent window in a
+    background thread — used after a model changes so the accuracy panel
+    reflects the current code. AEMO vintages are never touched."""
+    from threading import Thread
+    Thread(target=fc_eval.seed_recent,
+           kwargs={"region": region, "days": days, "replace": replace},
+           daemon=True).start()
+    return {"started": True, "days": days, "replace": replace, "region": region}

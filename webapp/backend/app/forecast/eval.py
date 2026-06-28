@@ -67,14 +67,19 @@ def log_forecasts(region: str = "NSW1") -> int:
 # targets, so "seeding" it would fabricate an unrealistically accurate AEMO and
 # bias the comparison. AEMO comes only from the forward logger (genuine
 # day-ahead vintage) and the archive backfill (true historical day-ahead).
-_SEEDABLE = ("ours", "naive")
+# ours/naive/ml are reconstructable day-ahead from point-in-time data (lagged
+# actuals + weather forecast + a trained model). aemo/amber are not.
+_SEEDABLE = ("ours", "naive", "ml")
 
 
-def seed_recent(region: str = "NSW1", days: int = SEED_DAYS) -> int:
+def seed_recent(region: str = "NSW1", days: int = SEED_DAYS,
+                replace: bool = False) -> int:
     """Backtest the last `days` complete days so the accuracy panel has data
     immediately. For each target day D we stand at D 00:00 (NEM) and let each
     model use only actuals strictly before D — a genuine day-ahead backtest.
-    INSERT OR IGNORE so live (forward-logged) vintages are never overwritten."""
+    `replace=False` (INSERT OR IGNORE) preserves live forward-logged vintages;
+    `replace=True` (INSERT OR REPLACE) refreshes seedable models to the current
+    code — used when a model has changed and the panel needs re-stating."""
     now = data.nem_now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     rows: list[tuple] = []
@@ -96,14 +101,16 @@ def seed_recent(region: str = "NSW1", days: int = SEED_DAYS) -> int:
                     rows.append((data.fmt(t), region, m.name, v, made))
     if not rows:
         return 0
+    verb = "INSERT OR REPLACE" if replace else "INSERT OR IGNORE"
     with write_conn() as con:
         con.executemany(
-            """INSERT OR IGNORE INTO forecast_eval
+            f"""{verb} INTO forecast_eval
                (target_datetime, regionid, model, predicted_rrp, made_at)
                VALUES (?,?,?,?,?)""",
             rows,
         )
-    log.info("forecast seed: %d (region=%s, days=%d)", len(rows), region, days)
+    log.info("forecast seed: %d (region=%s, days=%d, replace=%s)",
+             len(rows), region, days, replace)
     return len(rows)
 
 
