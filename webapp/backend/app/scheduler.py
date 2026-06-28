@@ -367,10 +367,12 @@ def start() -> None:
             await _tick_forecast_log()
         except Exception:
             log.exception("forecast seed/log failed")
-        # Train the LightGBM model on first boot if none exists yet (subsequent
-        # retrains happen via the daily ml_train job).
+        # Train the LightGBM model on boot (cheap, ~1 min) so a freshly deployed
+        # build always serves a model trained with the current feature code,
+        # not a stale/incompatible one from the volume. Daily retrains continue
+        # via the ml_train job.
         try:
-            if fc_ml.HAVE_LGB and not fc_ml.available("NSW1"):
+            if fc_ml.HAVE_LGB:
                 await _tick_ml_train()
         except Exception:
             log.exception("forecast ML initial train failed")

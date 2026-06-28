@@ -32,22 +32,35 @@ from . import data, weather
 log = logging.getLogger("forecast.ml")
 
 try:
-    import lightgbm as lgb
     import numpy as np
-    HAVE_LGB = True
+    HAVE_NUMPY = True
+except Exception:  # pragma: no cover
+    HAVE_NUMPY = False
+
+try:
+    import lightgbm as lgb
+    HAVE_LGB = HAVE_NUMPY   # LightGBM needs numpy
 except Exception:  # pragma: no cover - dependency optional
     HAVE_LGB = False
 
 # Feature column order — must match between train and predict.
+#
+# CRITICAL: this is a DAY-AHEAD model, so every feature must be knowable at
+# least HORIZON (24h = 48 half-hours) before the target. Intra-day lags
+# (last 30 min, same-day rolling) are NOT usable — they're in the future at
+# forecast time. Using them would train on information that is absent at
+# prediction, sending out-of-distribution NaNs through the trees. So all lags
+# and rolling windows END at least 48 steps before the target.
 FEATURES = [
     "hour", "dow", "month", "is_weekend", "hour_sin", "hour_cos",
-    "lag_30m", "lag_1d", "lag_2d", "lag_7d",
+    "lag_1d", "lag_2d", "lag_7d",
     "roll_1d", "roll_7d",
     "temp", "ghi", "wind",
     "aemo",
 ]
 TRAIN_DAYS = 540          # ~18 months of history
 _HALF = timedelta(minutes=30)
+HORIZON = 48              # 24h in half-hours — the day-ahead lead
 
 _cache: dict[str, tuple[float, object]] = {}   # region -> (mtime, booster)
 
@@ -80,14 +93,19 @@ def _matrix(grid, price, wx, aemo):
             a[steps:] = parr[:n - steps]
         return a
 
-    def rolling(w):
+    c = np.concatenate([[0.0], np.nancumsum(parr)])
+    cnt = np.concatenate([[0.0], np.cumsum(~np.isnan(parr))])
+
+    def roll(w, off):
+        """Mean of parr[i-off-w : i-off] — a window of width w ENDING `off`
+        steps before i. With off=HORIZON every value is known at forecast time."""
         a = np.full(n, np.nan)
-        c = np.concatenate([[0.0], np.nancumsum(parr)])
-        cnt = np.concatenate([[0.0], np.cumsum(~np.isnan(parr))])
-        for i in range(w, n):
-            k = cnt[i] - cnt[i - w]
-            if k > 0:
-                a[i] = (c[i] - c[i - w]) / k
+        for i in range(n):
+            hi, lo = i - off, i - off - w
+            if lo >= 0 and hi > lo:
+                k = cnt[hi] - cnt[lo]
+                if k > 0:
+                    a[i] = (c[hi] - c[lo]) / k
         return a
 
     cols = {
@@ -97,12 +115,11 @@ def _matrix(grid, price, wx, aemo):
         "is_weekend": np.array([1.0 if t.weekday() >= 5 else 0.0 for t in grid]),
         "hour_sin": np.array([math.sin(2 * math.pi * t.hour / 24) for t in grid]),
         "hour_cos": np.array([math.cos(2 * math.pi * t.hour / 24) for t in grid]),
-        "lag_30m": shifted(1),
-        "lag_1d": shifted(48),
+        "lag_1d": shifted(48),     # 24h before — first lag known at day-ahead
         "lag_2d": shifted(96),
         "lag_7d": shifted(336),
-        "roll_1d": rolling(48),
-        "roll_7d": rolling(336),
+        "roll_1d": roll(48, HORIZON),    # 24h window ending 24h before target
+        "roll_7d": roll(336, HORIZON),   # 7d window ending 24h before target
         "temp": np.array([(wx.get(t) or (np.nan,))[0] for t in grid], float),
         "ghi": np.array([(wx.get(t) or (np.nan, np.nan))[1] for t in grid], float),
         "wind": np.array([(wx.get(t) or (np.nan, np.nan, np.nan))[2] for t in grid], float),
