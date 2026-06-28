@@ -35,6 +35,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# libgomp1: OpenMP runtime required by the LightGBM wheel (forecast/ml.py).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Python dependencies
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt

@@ -12,6 +12,7 @@ from . import paper, vpp_settle, vpp_telemetry
 from .config import POLL_INTERVAL_SECONDS
 from .db import locked_conn
 from .forecast import eval as fc_eval
+from .forecast import ml as fc_ml
 from .scrapers import (
     backfill, bids, facilities, market_notices, nem, news, predispatch, pasa,
     rooftop_pv, scada, wem,
@@ -217,6 +218,20 @@ async def _tick_bids() -> None:
         _latest_status["bids"] = {"error": str(e)}
 
 
+async def _tick_ml_train() -> None:
+    """Retrain the LightGBM price model daily (off-loop). No-op if LightGBM
+    isn't installed."""
+    if not fc_ml.HAVE_LGB:
+        return
+    try:
+        res = await asyncio.to_thread(fc_ml.train, "NSW1")
+        _latest_status["ml_train"] = res
+        log.info("ML train: %s", res)
+    except Exception as e:
+        log.exception("ML train failed")
+        _latest_status["ml_train"] = {"error": str(e)}
+
+
 async def _tick_forecast_log() -> None:
     """Record each forecast model's day-ahead vintage for the next 24h (NSW1).
     Off-loaded to a thread so the DB work never blocks the event loop. INSERT
@@ -288,6 +303,11 @@ def start() -> None:
         _tick_forecast_log, "interval",
         seconds=1800, id="forecast", max_instances=1,
     )
+    # LightGBM price model: retrain daily.
+    _scheduler.add_job(
+        _tick_ml_train, "interval",
+        seconds=24 * 3600, id="ml_train", max_instances=1,
+    )
     _scheduler.start()
 
     # Stagger initial ticks so all scrapers don't hammer AEMO simultaneously
@@ -347,6 +367,13 @@ def start() -> None:
             await _tick_forecast_log()
         except Exception:
             log.exception("forecast seed/log failed")
+        # Train the LightGBM model on first boot if none exists yet (subsequent
+        # retrains happen via the daily ml_train job).
+        try:
+            if fc_ml.HAVE_LGB and not fc_ml.available("NSW1"):
+                await _tick_ml_train()
+        except Exception:
+            log.exception("forecast ML initial train failed")
 
     asyncio.create_task(_staggered_start())
 

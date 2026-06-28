@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import data
+from . import ml
 from . import weather
 
 log = logging.getLogger("forecast.models")
@@ -336,21 +337,22 @@ class AmberModel(ForecastModel):
 # ── Reserved: full ML model ──────────────────────────────────────────────────
 
 class MLModel(ForecastModel):
-    """Reserved hook for a learned model — lightgbm / quantile regression over
-    features (hour, weekday, demand & rooftop-PV forecast, price lags, recent
-    volatility). Not implemented in v1 to keep the image slim; the registry and
-    forecast_eval schema already accommodate it, so adding it is drop-in."""
+    """LightGBM gradient-boosted model (see forecast/ml.py). Trained daily on the
+    full price history with calendar + price-lag + weather + AEMO-anchor
+    features. Enabled only when LightGBM is installed AND a model has been
+    trained for the region; otherwise hidden."""
 
     name = "ml"
-    label = "ML (预留)"
-    color = "#a855f7"
+    label = "ML 模型"
+    color = "#a855f7"   # purple
 
+    # NSW1 is what v1 trains; widen as other regions get trained models.
     @property
     def enabled(self) -> bool:
-        return False
+        return ml.available("NSW1")
 
     def predict(self, con, region, targets, asof=None):
-        return {}
+        return ml.predict(con, region, targets, asof=asof)
 
 
 # ── Helpers + registry ───────────────────────────────────────────────────────

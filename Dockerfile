@@ -14,6 +14,11 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
+# libgomp1: OpenMP runtime required by the LightGBM wheel (forecast/ml.py).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY webapp/backend/requirements.txt .
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 

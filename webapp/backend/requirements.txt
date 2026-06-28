@@ -6,4 +6,5 @@ python-dateutil>=2.9.0
 sse-starlette>=2.1.0
 aiofiles>=23.0.0        # required by FastAPI StaticFiles
 honcho>=1.1.0           # run the API + scheduler as two processes (prod, via Procfile)
+lightgbm>=4.3.0         # ML price-forecast model (forecast/ml.py); pulls numpy+scipy
 # SQLite is in the stdlib — no extra dep needed.
