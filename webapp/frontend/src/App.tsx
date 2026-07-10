@@ -12,6 +12,7 @@ import { RegionTile, regionTilePropsForNEM, regionTilePropsForWEM } from './comp
 import { PriceChart } from './components/PriceChart'
 import { PriceKPIs } from './components/PriceKPIs'
 import { FCASMatrixView } from './components/FCASMatrix'
+import { FCASForecastPanel } from './components/FCASForecastPanel'
 import { HeatMap } from './components/HeatMap'
 import { NEMMap } from './components/NEMMap'
 import { PASAView } from './components/PASAView'
@@ -420,6 +421,14 @@ export default function App() {
                   <div className="text-[11px] text-muted mt-0.5">{t('sec.fcasMatrixHint')}</div>
                 </div>
                 <FCASMatrixView data={fcas} />
+                {selected !== 'WEM' && (
+                  <div className="mt-5">
+                    <FCASForecastPanel
+                      region={selected}
+                      refreshKey={snap?.generated_at ?? null}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* 90-day price heatmap — inside price tab */}

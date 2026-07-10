@@ -2,7 +2,7 @@ import type {
   ActiveConstraints,
   BessBacktestRequest, BessBacktestResponse,
   BessDefaultsResponse, BessModelResponse, BessRegion,
-  Bid, BidIn, BessState, BidStack, Constraints, DispatchPlan, FCASMatrix, Fill, Forecast,
+  Bid, BidIn, BessState, BidStack, Constraints, DispatchPlan, FCASForecast, FCASMatrix, Fill, Forecast,
   ForecastAccuracy, ForecastSeries,
   GeneratorsSnapshot, GridSnapshot, Heatmap, History, MarketCatalog, OHLCData,
   MLFResponse, MLFRegionsResponse,
@@ -96,6 +96,23 @@ export async function fetchHeatmap(days = 90): Promise<Heatmap> {
 export async function fetchFCAS(): Promise<FCASMatrix> {
   const r = await fetch(`${BASE}/fcas/matrix`)
   if (!r.ok) throw new Error(`fcas ${r.status}`)
+  return r.json()
+}
+
+export async function fetchFCASForecast(
+  region: string,
+  futureHours = 1,
+  powerMw = 10,
+  availabilityPct = 100,
+): Promise<FCASForecast> {
+  const q = new URLSearchParams({
+    region,
+    future_hours: String(futureHours),
+    power_mw: String(powerMw),
+    availability_pct: String(availabilityPct),
+  })
+  const r = await fetch(`${BASE}/fcas/forecast?${q}`)
+  if (!r.ok) throw new Error(`fcas forecast ${r.status}`)
   return r.json()
 }
 

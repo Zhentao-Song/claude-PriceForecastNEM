@@ -130,6 +130,68 @@ export type FCASMatrix = {
   regions: ({ regionid: string; settlementdate: string | null } & Record<string, number | null | string>)[]
 }
 
+export type FCASMarketMeta = {
+  market: string
+  code: string
+  name: string
+  side: 'raise' | 'lower'
+  response: string
+}
+
+export type FCASForecastProduct = FCASMarketMeta & {
+  avg_price: number | null
+  peak_price: number | null
+  first_price: number | null
+  last_price: number | null
+  revenue_aud: number | null
+  intervals: number
+  trend: 'up' | 'down' | 'flat'
+  suitability: string
+}
+
+export type FCASForecastInterval = {
+  t: string | null
+  source: 'P5MIN' | 'PREDISPATCH' | string
+  run_datetime: string | null
+  prices: FCAS
+  best_market: string | null
+  best_code: string | null
+  best_price: number | null
+}
+
+export type FCASForecastRegion = {
+  regionid: string
+  intervals: number
+  best_market: string | null
+  best_code: string | null
+  avg_best_price: number | null
+  peak_best_price: number | null
+  revenue_aud: number | null
+}
+
+export type FCASForecast = {
+  region: string
+  markets: FCASMarketMeta[]
+  interval_minutes: number
+  interval_count: number
+  power_mw: number
+  availability_pct: number
+  run_datetime: string | null
+  sources: string[]
+  intervals: FCASForecastInterval[]
+  products: FCASForecastProduct[]
+  regions: FCASForecastRegion[]
+  recommendation: {
+    market: string | null
+    code: string | null
+    message: string
+    confidence: 'low' | 'medium' | 'high' | string
+  }
+  window_start?: string | null
+  window_end?: string | null
+  generated_at?: string | null
+}
+
 export type Interconnector = {
   id: string
   name: string

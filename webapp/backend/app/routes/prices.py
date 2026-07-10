@@ -8,6 +8,7 @@ from .. import scheduler
 from ..cache import ttl_cache
 from ..config import APC_PRICE_AUD, CPT_INTERVALS, CPT_THRESHOLD_AUD, NEM_REGIONS
 from ..db import locked_conn
+from ..fcas_forecast import MAX_FCAS_FORECAST_HOURS, MARKET_KEYS, build_fcas_forecast
 from ..scrapers import backfill
 
 router = APIRouter(prefix="/api", tags=["prices"])
@@ -792,6 +793,85 @@ def fcas_matrix() -> dict:
             **{m: r[i + 2] for i, m in enumerate(markets)},
         })
     return {"markets": markets, "regions": matrix}
+
+
+@router.get("/fcas/forecast")
+def fcas_forecast(
+    region: str = Query("NSW1", description="Focus NEM region for product cards"),
+    future_hours: int = Query(1, ge=1, le=MAX_FCAS_FORECAST_HOURS,
+                              description="Forecast horizon. P5MIN covers ~1h; PREDISPATCH extends further."),
+    power_mw: float = Query(10.0, ge=0, le=10000,
+                            description="Enabled FCAS capacity for the revenue simulator"),
+    availability_pct: float = Query(100.0, ge=0, le=100,
+                                    description="Share of power offered as FCAS availability"),
+) -> dict:
+    """AEMO forecast-driven FCAS predictor.
+
+    Reads the same P5MIN/PREDISPATCH rows already used for the RRP forecast
+    overlay, but aggregates the 10 FCAS markets into product cards, regional
+    comparisons, and a simple capacity-payment simulator.
+    """
+    focus = region.upper()
+    if focus not in NEM_REGIONS:
+        focus = "NSW1"
+
+    placeholders = ",".join("?" for _ in NEM_REGIONS)
+    modifier = f"+{future_hours} hours"
+    with locked_conn() as con:
+        latest_actual = con.execute(
+            "SELECT MAX(settlementdate) FROM nem_dispatch_price"
+        ).fetchone()[0]
+        if latest_actual is None:
+            return build_fcas_forecast(
+                [], focus_region=focus, power_mw=power_mw,
+                availability_pct=availability_pct,
+            )
+
+        window_end = con.execute(
+            "SELECT datetime(?, ?)",
+            (latest_actual, modifier),
+        ).fetchone()[0]
+
+        rows = con.execute(
+            f"""
+            SELECT regionid, interval_datetime, source, run_datetime,
+                   raise1sec_rrp, raise6sec_rrp, raise60sec_rrp,
+                   raise5min_rrp, raisereg_rrp,
+                   lower1sec_rrp, lower6sec_rrp, lower60sec_rrp,
+                   lower5min_rrp, lowerreg_rrp
+            FROM nem_predispatch_price
+            WHERE interval_datetime > ?
+              AND interval_datetime <= ?
+              AND regionid IN ({placeholders})
+            ORDER BY regionid, interval_datetime,
+                     CASE source WHEN 'P5MIN' THEN 0 ELSE 1 END,
+                     run_datetime DESC
+            """,
+            (latest_actual, window_end, *NEM_REGIONS),
+        ).fetchall()
+
+    mapped = []
+    for row in rows:
+        item = {
+            "regionid": row[0],
+            "interval_datetime": row[1],
+            "source": row[2],
+            "run_datetime": row[3],
+        }
+        for market, value in zip(MARKET_KEYS, row[4:]):
+            item[market] = value
+        mapped.append(item)
+
+    out = build_fcas_forecast(
+        mapped,
+        focus_region=focus,
+        power_mw=power_mw,
+        availability_pct=availability_pct,
+    )
+    out["window_start"] = _iso(latest_actual)
+    out["window_end"] = _iso(window_end)
+    out["generated_at"] = datetime.utcnow().isoformat()
+    return out
 
 
 def _iso(v) -> str | None:
