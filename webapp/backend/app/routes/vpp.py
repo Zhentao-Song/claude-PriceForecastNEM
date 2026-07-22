@@ -27,7 +27,7 @@ INTERVAL_MIN = 5
 GATE_BUFFER_SECONDS = 30      # same buffer as paper.py
 MAX_BANDS = 10
 MPF = -1000                    # AEMO market price floor
-MPC = 17500                    # AEMO market price cap (2024-25)
+MPC = 23200                    # AEMO market price cap (FY2026-27)
 
 # Markets the same as paper.py for symmetry.
 ENERGY = "ENERGY"

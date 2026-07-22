@@ -35,6 +35,8 @@ const VPPCalc = lazy(() =>
   import('./components/VPPCalc').then((m) => ({ default: m.VPPCalc })))
 const ForecastView = lazy(() =>
   import('./components/ForecastView').then((m) => ({ default: m.ForecastView })))
+const FuturesView = lazy(() =>
+  import('./components/FuturesView').then((m) => ({ default: m.FuturesView })))
 import { WeatherPanel } from './components/WeatherPanel'
 import { FuelMixLive } from './components/FuelMixLive'
 import { CandlestickChart } from './components/CandlestickChart'
@@ -53,7 +55,7 @@ function ViewLoading() {
   )
 }
 
-type View = 'nem' | 'nsw' | 'forecast' | 'vpp' | 'vpp-calc' | 'bess-calc' | 'stations' | 'news'
+type View = 'nem' | 'futures' | 'nsw' | 'forecast' | 'vpp' | 'vpp-calc' | 'bess-calc' | 'stations' | 'news'
 
 export default function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null)
@@ -205,10 +207,11 @@ export default function App() {
 
       <main className="flex-1 px-8 py-10 max-w-[1400px] w-full mx-auto">
         {/* Page intro + view toggle */}
-        <div className="mb-8 flex items-end justify-between gap-6">
-          <div>
+        <div className="mb-8 flex flex-col items-start gap-5 xl:flex-row xl:items-end xl:justify-between xl:gap-6">
+          <div className="max-w-2xl">
             <h1 className="text-[28px] font-semibold tracking-tight text-ink leading-tight">
               {view === 'nem' ? t('intro.titleNem')
+               : view === 'futures' ? t('intro.titleFutures')
                : view === 'nsw' ? t('intro.titleNsw')
                : view === 'forecast' ? t('intro.titleForecast')
                : view === 'bess-calc' ? t('intro.titleBessCalc')
@@ -219,6 +222,7 @@ export default function App() {
             </h1>
             <p className="text-[15px] text-ink2 mt-2">
               {view === 'nem' ? t('intro.subtitleNem')
+               : view === 'futures' ? t('intro.subtitleFutures')
                : view === 'nsw' ? t('intro.subtitleNsw')
                : view === 'forecast' ? t('intro.subtitleForecast')
                : view === 'bess-calc' ? t('intro.subtitleBessCalc')
@@ -228,9 +232,10 @@ export default function App() {
                : t('vpp.kicker')}
             </p>
           </div>
-          <div className="flex gap-1 p-0.5 bg-surfaceAlt rounded-lg shrink-0">
+          <div className="flex w-full gap-1 overflow-x-auto rounded-lg bg-surfaceAlt p-0.5 xl:w-auto xl:shrink-0">
             {([
               { k: 'nem' as View, label: t('nav.allNem') },
+              { k: 'futures' as View, label: t('nav.futures') },
               { k: 'forecast' as View, label: t('nav.forecast') },
               { k: 'nsw' as View, label: t('nav.nswDeepDive') },
               { k: 'bess-calc' as View, label: t('nav.bessCalc') },
@@ -242,7 +247,7 @@ export default function App() {
               <button
                 key={k}
                 onClick={() => setView(k)}
-                className={`text-[12px] px-3 py-1.5 rounded-md transition ${
+                className={`text-[12px] px-3 py-1.5 rounded-md transition whitespace-nowrap ${
                   view === k
                     ? 'bg-white text-ink shadow-sm font-medium'
                     : 'text-ink2 hover:text-ink'
@@ -256,6 +261,8 @@ export default function App() {
 
         {view === 'nsw' ? (
           <Suspense fallback={<ViewLoading />}><NSWDeepDive snap={snap} generators={gens} grid={grid} /></Suspense>
+        ) : view === 'futures' ? (
+          <Suspense fallback={<ViewLoading />}><FuturesView /></Suspense>
         ) : view === 'forecast' ? (
           <Suspense fallback={<ViewLoading />}><ForecastView /></Suspense>
         ) : view === 'vpp' ? (

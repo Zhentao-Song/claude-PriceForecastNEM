@@ -30,6 +30,9 @@ from .static.generators import GENERATORS_BY_DUID
 
 log = logging.getLogger("paper")
 
+MPF = -1000.0
+MPC = 23_200.0
+
 # 11 markets we settle. Order matters only for display.
 ENERGY = "ENERGY"
 FCAS_MARKETS = [
@@ -166,7 +169,7 @@ def _validate_bands(bands: list[dict]) -> list[dict]:
 
     Enforces the AEMO ladder shape:
       * 1–10 bands (NER 3.8.6A.1)
-      * price within MPF/MPC (−$1000 to $17,500)
+      * price within MPF/MPC (−$1,000 to $23,200)
       * non-negative MW per band
       * **strictly ascending** prices band-by-band (AEMO monotonic rule —
         each next band must be priced higher than the previous one so the
@@ -187,9 +190,9 @@ def _validate_bands(bands: list[dict]) -> list[dict]:
             raise ValueError(f"band {i+1}: price and mw must be numeric")
         if mw < 0:
             raise ValueError(f"band {i+1}: mw must be non-negative")
-        # AEMO floor/ceiling: -$1000 to $17,500. We enforce the current bounds.
-        if price < -1000 or price > 17500:
-            raise ValueError(f"band {i+1}: price must be in [-1000, 17500]")
+        # AEMO floor/ceiling for FY2026-27. We enforce the current bounds.
+        if price < MPF or price > MPC:
+            raise ValueError(f"band {i+1}: price must be in [{MPF:.0f}, {MPC:.0f}]")
         cleaned.append({"price": price, "mw": mw})
     # AEMO requires a strictly-ascending price ladder. Reject ties and
     # inversions: NEMDE stacks bands in price order, so duplicates create

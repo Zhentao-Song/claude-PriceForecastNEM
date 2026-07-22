@@ -9,7 +9,7 @@ import time
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from . import paper, vpp_settle, vpp_telemetry
-from .config import POLL_INTERVAL_SECONDS
+from .config import DATA_DIR, POLL_INTERVAL_SECONDS
 from .db import locked_conn
 from .forecast import eval as fc_eval
 from .forecast import ml as fc_ml
@@ -262,7 +262,14 @@ def start() -> None:
     # 5 min is plenty. Set DISABLE_BIDS=1 to skip the bids feed entirely
     # (the BIDPEROFFER ingest/prune on a multi-million-row table can stall the
     # single async worker — useful when the bid table has grown very large).
-    _bids_disabled = os.getenv("DISABLE_BIDS", "").strip().lower() in ("1", "true", "yes")
+    # A persistent flag in the data volume provides an emergency brake when a
+    # large bid ingest exhausts the host disk. Unlike an environment variable,
+    # it survives container replacement and can be toggled without rebuilding
+    # the image.
+    _bids_disabled = (
+        os.getenv("DISABLE_BIDS", "").strip().lower() in ("1", "true", "yes")
+        or (DATA_DIR / ".disable_bids").exists()
+    )
     if not _bids_disabled:
         _scheduler.add_job(
             _tick_bids, "interval",

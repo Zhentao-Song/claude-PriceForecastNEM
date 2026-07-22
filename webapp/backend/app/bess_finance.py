@@ -60,10 +60,17 @@ class BessFinanceInputs:
 
     # ---- Revenue calibration (per-MWh / per-MW; can be overridden by
     #      historical data on the route side) ----
-    # If None, route layer will compute from nem_dispatch_price.
+    # `arb_spread_per_mwh` is retained as the public API field name for
+    # compatibility, but its value is the captured cash settlement margin per
+    # discharged MWh after RTE, MLF, auxiliary load and bidding/capture effects.
+    # The dispatch optimiser may use a degradation hurdle to avoid uneconomic
+    # cycling, but no non-cash degradation reserve is deducted here because
+    # physical fade and augmentation CapEx are modelled separately below.
     arb_spread_per_mwh: float | None = None
+    # The SA route can supply an observed DUID-comparator benchmark. Users can
+    # override it with contracted or asset-specific revenue when available.
     fcas_revenue_per_mw_year: float | None = None
-    fcas_decline_pct_year: float = 8.0       # annual FCAS price decline
+    fcas_decline_pct_year: float = 0.0       # explicit user scenario; no hidden decline
     cis_floor_revenue_per_mw_year: float = 0.0    # Capacity Investment Scheme floor
 
     # ---- Financial ----
@@ -162,10 +169,6 @@ def project_cashflow(inputs: BessFinanceInputs) -> dict:
     inflation = inp.inflation_pct / 100
     discount = inp.discount_rate_pct / 100
     tax = inp.tax_rate_pct / 100
-    mlf = inp.mlf
-    rte = inp.rte_pct / 100
-    aux = inp.aux_load_pct / 100
-
     energy_mwh = inp.power_mw * inp.duration_h
     capex_initial = inp.capex_aud
     debt_amount = capex_initial * inp.debt_pct / 100
@@ -236,17 +239,13 @@ def project_cashflow(inputs: BessFinanceInputs) -> dict:
         effective_energy_mwh = energy_mwh * cap_factor
 
         # ---- Energy arbitrage revenue ----
-        # discharge_mwh = cycles × days × effective_capacity
-        # round-trip applies because each $ of spread requires both buy
-        # and sell of the MWh; we approximate net as (sell − buy/rte) × MWh.
-        # Simpler & common shorthand: spread × MWh × √rte (effective one-way).
+        # discharge_mwh = cycles × days × effective_capacity.  `arb_spread`
+        # is already the net earned margin per discharged MWh from the SOC
+        # backtest, including RTE, MLF, auxiliary load and capture efficiency.
+        # Cycling has already been screened using the degradation hurdle;
+        # capacity fade and augmentation are represented separately here.
         discharge_mwh_yr = inp.cycles_per_day * 365 * effective_energy_mwh
-        # Energy revenue: discharge_mwh × spread × MLF × (1 − aux)
-        # Subtract charge cost: divide by rte to model losses paying double.
-        energy_revenue = (
-            discharge_mwh_yr * arb_spread * mlf * (1 - aux) -
-            discharge_mwh_yr * arb_spread * (1 / rte - 1)
-        )
+        energy_revenue = discharge_mwh_yr * arb_spread
         # ---- FCAS revenue (declining as BESS saturates) ----
         fcas_rev_per_mw = fcas_rev_yr1 * (1 - fcas_decline) ** (y - 1)
         fcas_revenue = inp.power_mw * fcas_rev_per_mw
@@ -400,8 +399,12 @@ def tornado(inputs: BessFinanceInputs) -> list[dict]:
     equity IRR delta. Caller renders these as horizontal bars sorted by
     absolute delta.
 
-    Variables varied: cycles_per_day ±20%, arb_spread ±20%, FCAS revenue
-    ±50%, CapEx ±15%, interest rate ±200bp, RTE ±3pp.
+    Variables varied: cycles_per_day ±20%, net arbitrage margin ±20%, FCAS
+    price exposure ±50%, CapEx ±15%, interest rate ±200bp.
+
+    RTE is intentionally not varied independently here because the calibrated
+    net arbitrage margin already embeds RTE.  To test a different RTE, rerun
+    the historical backtest so dispatch and the net margin are recalibrated.
     """
     base = project_cashflow(inputs)
     base_eq_irr = base["summary"]["equity_irr_pct"]
@@ -410,11 +413,10 @@ def tornado(inputs: BessFinanceInputs) -> list[dict]:
 
     drivers = [
         ("cycles_per_day", 0.20, "Cycles per day"),
-        ("arb_spread_per_mwh", 0.20, "Energy spread $/MWh"),
-        ("fcas_revenue_per_mw_year", 0.50, "FCAS revenue $/MW/yr"),
+        ("arb_spread_per_mwh", 0.20, "Captured energy cash margin $/MWh"),
+        ("fcas_revenue_per_mw_year", 0.50, "Observed FCAS benchmark $/MW/yr"),
         ("capex_aud", 0.15, "CapEx"),
         ("interest_rate_pct", 200, "Interest rate (bp)"),    # absolute bp, not %
-        ("rte_pct", 3, "RTE (pp)"),                          # absolute pp
     ]
 
     out = []
@@ -433,9 +435,6 @@ def tornado(inputs: BessFinanceInputs) -> list[dict]:
         if attr in ("interest_rate_pct",):   # bp = absolute %
             up_kwargs[attr] = base_val + delta_pct / 100
             down_kwargs[attr] = base_val - delta_pct / 100
-        elif attr == "rte_pct":              # pp = absolute %
-            up_kwargs[attr] = min(99, base_val + delta_pct)
-            down_kwargs[attr] = max(50, base_val - delta_pct)
         else:                                  # relative %
             up_kwargs[attr] = base_val * (1 + delta_pct)
             down_kwargs[attr] = base_val * (1 - delta_pct)

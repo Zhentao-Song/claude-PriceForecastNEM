@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from . import scheduler
 from .db import get_conn
 from .routes import (
-    bess_calc, bids, forecast, grid, mlf, news, notices, paper, pasa,
+    asx_futures, bess_calc, bids, forecast, grid, mlf, news, notices, paper, pasa,
     price_forecast, prices, station, stream, vpp, vpp_calc, weather,
 )
 
@@ -71,6 +71,7 @@ app.include_router(weather.router)
 app.include_router(notices.router)
 app.include_router(news.router)
 app.include_router(station.router)
+app.include_router(asx_futures.router)
 
 
 # ── Serve bundled React frontend (production only) ────────────────────────────

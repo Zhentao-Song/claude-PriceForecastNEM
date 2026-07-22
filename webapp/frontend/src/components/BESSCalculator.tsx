@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { backtestBess, fetchBessBackfillStatus, fetchBessDefaults, modelBess, startBessBackfill } from '../api'
+import {
+  backtestBess, fetchBessBackfillStatus, fetchBessBenchmarks, fetchBessDefaults,
+  modelBess, startBessBackfill,
+} from '../api'
 import type {
-  BessBacktestHaircuts, BessBacktestResponse, BessDefaultsResponse, BessInputs, BessModelResponse,
-  BessProvenance, BessRegion, BessSensitivityRow, BessYearlyRow,
+  BessBacktestHaircuts, BessBacktestResponse, BessBenchmarkResponse,
+  BessDefaultsResponse, BessInputs, BessModelResponse, BessProvenance,
+  BessRegion, BessSensitivityRow, BessYearlyRow,
 } from '../types'
 import { useT } from '../i18n'
 import { FCASTrapeziuBuilder } from './FCASTrapeziuBuilder'
@@ -23,10 +27,9 @@ import { FCASTrapeziuBuilder } from './FCASTrapeziuBuilder'
  *   │                              │ Assumptions provenance (honest)    │
  *   └─────────────────────────────┴────────────────────────────────────┘
  *
- * Defaults endpoint pre-calibrates region-specific values (arb_spread,
- * fcas_revenue, MLF) from the last 90 days of real RRP/FCAS data. The
- * provenance map tells the UI which inputs came from real data vs which
- * are industry defaults — surfaced in the bottom panel.
+ * SA revenue assumptions are calibrated against public DUID-level dispatch
+ * and actual per-service FCAS enablement.  Perfect foresight is displayed only
+ * as an energy upper bound, never as the default bankable case.
  */
 
 const REGION_OPTS: BessRegion[] = ['NSW1', 'QLD1', 'VIC1', 'SA1', 'TAS1']
@@ -47,7 +50,7 @@ function fmtYears(v: number | null | undefined): string {
 
 export function BESSCalculator() {
   const { t } = useT()
-  const [region, setRegion] = useState<BessRegion>('NSW1')
+  const [region, setRegion] = useState<BessRegion>('SA1')
   const [defaults, setDefaults] = useState<BessDefaultsResponse | null>(null)
   const [model, setModel] = useState<BessModelResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -67,6 +70,9 @@ export function BESSCalculator() {
   // Dynamic dispatch parameters exposed to the user
   const [degCostPerMwh, setDegCostPerMwh] = useState(35)
   const [maxCyclesPerDay, setMaxCyclesPerDay] = useState(2.0)
+  const [benchmark, setBenchmark] = useState<BessBenchmarkResponse | null>(null)
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false)
+  const [benchmarkErr, setBenchmarkErr] = useState<string | null>(null)
 
   // MMSDM historical backfill state — tracks progress of the background
   // job that downloads missing months from the AEMO archive.
@@ -150,14 +156,15 @@ export function BESSCalculator() {
   // Run model whenever form changes (debounced)
   useEffect(() => {
     if (!form) return
+    let cancelled = false
     const id = setTimeout(() => {
       setLoading(true)
       modelBess(form as any, true)
-        .then(setModel)
-        .catch((e) => setErr(String(e.message ?? e)))
-        .finally(() => setLoading(false))
+        .then((result) => { if (!cancelled) setModel(result) })
+        .catch((e) => { if (!cancelled) setErr(String(e.message ?? e)) })
+        .finally(() => { if (!cancelled) setLoading(false) })
     }, 350)
-    return () => clearTimeout(id)
+    return () => { cancelled = true; clearTimeout(id) }
   }, [form])
 
   // Poll backfill status while a job is running, then refresh backtest once done.
@@ -184,6 +191,7 @@ export function BESSCalculator() {
               mlf: form.mlf,
               aux_load_pct: form.aux_load_pct,
               lookback_days: 365,
+              capture_efficiency: 1.0,
               deg_cost_per_mwh: degCostPerMwh,
               max_cycles_per_day: maxCyclesPerDay,
             })
@@ -201,8 +209,16 @@ export function BESSCalculator() {
   // Re-run backtest whenever the BESS spec or dispatch params change.
   useEffect(() => {
     if (!form) return
+    let cancelled = false
+    setBacktest(null)
+    setBacktestLoading(true)
+    // Region changes fetch a new MLF/default set asynchronously.  Do not start
+    // a backtest for the new region with the previous region's MLF; wait until
+    // the matching defaults payload has arrived.
+    if (defaults?.region !== region) {
+      return () => { cancelled = true }
+    }
     const id = setTimeout(() => {
-      setBacktestLoading(true)
       backtestBess({
         region: region,
         power_mw: form.power_mw,
@@ -211,17 +227,72 @@ export function BESSCalculator() {
         mlf: form.mlf,
         aux_load_pct: form.aux_load_pct,
         lookback_days: backtestLookback,
+        capture_efficiency: 1.0,
         deg_cost_per_mwh: degCostPerMwh,
         max_cycles_per_day: maxCyclesPerDay,
       })
-        .then((r) => { setBacktest(r); setBacktestErr(null) })
-        .catch((e) => setBacktestErr(String(e.message ?? e)))
-        .finally(() => setBacktestLoading(false))
+        .then((r) => {
+          if (!cancelled) { setBacktest(r); setBacktestErr(null) }
+        })
+        .catch((e) => { if (!cancelled) setBacktestErr(String(e.message ?? e)) })
+        .finally(() => { if (!cancelled) setBacktestLoading(false) })
     }, 800)
-    return () => clearTimeout(id)
+    return () => { cancelled = true; clearTimeout(id) }
   }, [region, form?.power_mw, form?.duration_h, form?.rte_pct,
-       form?.mlf, form?.aux_load_pct, backtestLookback,
+       form?.mlf, form?.aux_load_pct, defaults?.region, backtestLookback,
        degCostPerMwh, maxCyclesPerDay])
+
+  // Build an empirical SA range from actual DUID dispatch and FCAS enablement.
+  // The base case is applied automatically unless the user has edited that
+  // revenue field; conservative and upside remain visible for diligence.
+  useEffect(() => {
+    if (!form || defaults?.region !== region) return
+    let cancelled = false
+    setBenchmarkLoading(true)
+    setBenchmarkErr(null)
+    const id = setTimeout(() => {
+      fetchBessBenchmarks({
+        region,
+        power_mw: form.power_mw,
+        duration_h: form.duration_h,
+        rte_pct: form.rte_pct,
+        mlf: form.mlf,
+        aux_load_pct: form.aux_load_pct,
+        deg_cost_per_mwh: degCostPerMwh,
+        max_cycles_per_day: maxCyclesPerDay,
+      })
+        .then((result) => {
+          if (cancelled) return
+          setBenchmark(result)
+          const base = result.scenarios?.base
+          if (result.available && base) {
+            setForm((current) => {
+              if (!current) return current
+              return {
+                ...current,
+                arb_spread_per_mwh: dirty.has('arb_spread_per_mwh')
+                  ? current.arb_spread_per_mwh : base.energy_cash_margin_per_mwh,
+                cycles_per_day: dirty.has('cycles_per_day')
+                  ? current.cycles_per_day : base.mean_cycles_per_day,
+                fcas_revenue_per_mw_year: dirty.has('fcas_revenue_per_mw_year')
+                  ? current.fcas_revenue_per_mw_year : base.fcas_revenue_per_mw_year,
+              }
+            })
+          }
+        })
+        .catch((e) => {
+          if (!cancelled) setBenchmarkErr(String(e.message ?? e))
+        })
+        .finally(() => {
+          if (!cancelled) setBenchmarkLoading(false)
+        })
+    }, 1000)
+    return () => { cancelled = true; clearTimeout(id) }
+  // Dirty revenue fields are intentionally read at request time but are not
+  // dependencies: editing a manual assumption must not rerun the benchmark.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [region, form?.power_mw, form?.duration_h, form?.rte_pct, form?.mlf,
+      form?.aux_load_pct, defaults?.region, degCostPerMwh, maxCyclesPerDay])
 
   const updateField = <K extends keyof BessInputs>(key: K, value: BessInputs[K]) => {
     setForm((f) => f ? ({ ...f, [key]: value }) : f)
@@ -234,8 +305,77 @@ export function BESSCalculator() {
     setDirty(new Set())
   }
 
+  const applyBenchmarkBase = () => {
+    const base = benchmark?.scenarios?.base
+    if (!base) return
+    setForm((current) => current ? ({
+      ...current,
+      arb_spread_per_mwh: base.energy_cash_margin_per_mwh,
+      cycles_per_day: base.mean_cycles_per_day,
+      fcas_revenue_per_mw_year: base.fcas_revenue_per_mw_year,
+    }) : current)
+    setDirty((current) => {
+      const next = new Set(current)
+      next.delete('arb_spread_per_mwh')
+      next.delete('cycles_per_day')
+      next.delete('fcas_revenue_per_mw_year')
+      return next
+    })
+  }
+
   if (!form) {
     return <div className="h-64 flex items-center justify-center text-muted text-sm">{t('chart.loading')}</div>
+  }
+
+  const conservativeBenchmark = benchmark?.scenarios?.conservative
+  const baseBenchmark = benchmark?.scenarios?.base
+  const upsideBenchmark = benchmark?.scenarios?.upside
+  const benchmarkArbProvenance: BessProvenance | undefined =
+    benchmark?.available && conservativeBenchmark && baseBenchmark && upsideBenchmark
+      ? {
+          source: 'observed_benchmark',
+          note: 'Observed SA BESS cash margin per discharged MWh and realised cycles scaled to the target asset',
+          stats: {
+            value: baseBenchmark.energy_cash_margin_per_mwh,
+            p25: Math.min(
+              conservativeBenchmark.energy_cash_margin_per_mwh,
+              upsideBenchmark.energy_cash_margin_per_mwh,
+            ),
+            median: baseBenchmark.energy_cash_margin_per_mwh,
+            p75: Math.max(
+              conservativeBenchmark.energy_cash_margin_per_mwh,
+              upsideBenchmark.energy_cash_margin_per_mwh,
+            ),
+            unit: '$/MWh',
+            label: 'Observed operating energy cash margin',
+          },
+        }
+      : defaults?.provenance.arb_spread_per_mwh
+  const benchmarkFcasProvenance: BessProvenance | undefined =
+    benchmark?.available && baseBenchmark
+      ? {
+          source: 'observed_benchmark',
+          note: 'Actual per-service enabled MW multiplied by the matching five-minute regional FCAS price',
+          stats: {
+            value: baseBenchmark.fcas_revenue_per_mw_year,
+            p25: benchmark.benchmark.observed_fcas_per_mw_year.p25,
+            median: benchmark.benchmark.observed_fcas_per_mw_year.median,
+            p75: benchmark.benchmark.observed_fcas_per_mw_year.p75,
+            unit: '$/MW/yr',
+            label: 'Observed FCAS revenue for FCAS-active SA comparables',
+          },
+        }
+      : defaults?.provenance.fcas_revenue_per_mw_year
+  const displayedProvenance: Record<string, BessProvenance> = {
+    ...(defaults?.provenance ?? {}),
+    ...(benchmark?.available ? {
+      arb_spread_per_mwh: benchmarkArbProvenance!,
+      fcas_revenue_per_mw_year: benchmarkFcasProvenance!,
+      cycles_per_day: {
+        source: 'observed_benchmark',
+        note: 'Equivalent full-cycle distribution observed across established SA comparator DUIDs',
+      } as BessProvenance,
+    } : {}),
   }
 
   return (
@@ -351,30 +491,22 @@ export function BESSCalculator() {
         </InputCard>
 
         <CollapsibleCard title={t('bc.in.revenue')} defaultOpen={true}>
-          {/* Backtest panel — the financially-correct way to estimate
-              annual revenue. Runs auto on any spec change; user can
-              "use backtested" to snap the manual inputs below to the
-              backtest-implied values. */}
+          <ObservedBenchmarkPanel
+            benchmark={benchmark}
+            loading={benchmarkLoading}
+            err={benchmarkErr}
+            currentMlf={form.mlf}
+            onApplyBase={applyBenchmarkBase}
+            t={t}
+          />
+          {/* Perfect-foresight dispatch remains visible as an audit upper
+              bound. It is not fed into the finance model when a comparator
+              benchmark is available. */}
           <BacktestPanel
             backtest={backtest} loading={backtestLoading} err={backtestErr}
             lookback={backtestLookback} onLookbackChange={setBacktestLookback}
             degCostPerMwh={degCostPerMwh} onDegCostChange={setDegCostPerMwh}
             maxCyclesPerDay={maxCyclesPerDay} onMaxCyclesChange={setMaxCyclesPerDay}
-            onUseBacktest={() => {
-              if (!backtest) return
-              if (backtest.energy) {
-                setForm((f) => f ? ({
-                  ...f,
-                  arb_spread_per_mwh: backtest.energy!.implied_spread_per_mwh,
-                  cycles_per_day: backtest.energy!.mean_cycles_per_day,
-                }) : f)
-                setDirty((d) => { const n = new Set(d); n.add('arb_spread_per_mwh'); n.add('cycles_per_day'); return n })
-              }
-              if (backtest.fcas) {
-                setForm((f) => f ? ({ ...f, fcas_revenue_per_mw_year: backtest.fcas!.per_mw_year_after_util }) : f)
-                setDirty((d) => new Set(d).add('fcas_revenue_per_mw_year'))
-              }
-            }}
             onBackfill={async () => {
               setBackfillRunning(true)
               setBackfillDone(false)
@@ -390,9 +522,10 @@ export function BESSCalculator() {
           <NumberInput label={t('bc.in.arbSpread')} value={form.arb_spread_per_mwh} unit="$/MWh" step={5}
                         onChange={(v) => updateField('arb_spread_per_mwh', v)}
                         dirty={dirty.has('arb_spread_per_mwh')}
-                        provenance={defaults?.provenance.arb_spread_per_mwh}
+                        provenance={benchmarkArbProvenance}
                         onReset={() => {
-                          const v = defaults?.provenance.arb_spread_per_mwh?.stats?.value
+                          const v = baseBenchmark?.energy_cash_margin_per_mwh
+                            ?? defaults?.provenance.arb_spread_per_mwh?.stats?.value
                           if (v !== undefined) {
                             setForm((f) => f ? ({ ...f, arb_spread_per_mwh: v }) : f)
                             setDirty((d) => { const n = new Set(d); n.delete('arb_spread_per_mwh'); return n })
@@ -402,9 +535,10 @@ export function BESSCalculator() {
                         displayScale={1000}
                         onChange={(v) => updateField('fcas_revenue_per_mw_year', v * 1000)}
                         dirty={dirty.has('fcas_revenue_per_mw_year')}
-                        provenance={defaults?.provenance.fcas_revenue_per_mw_year}
+                        provenance={benchmarkFcasProvenance}
                         onReset={() => {
-                          const v = defaults?.provenance.fcas_revenue_per_mw_year?.stats?.value
+                          const v = baseBenchmark?.fcas_revenue_per_mw_year
+                            ?? defaults?.provenance.fcas_revenue_per_mw_year?.stats?.value
                           if (v !== undefined) {
                             setForm((f) => f ? ({ ...f, fcas_revenue_per_mw_year: v }) : f)
                             setDirty((d) => { const n = new Set(d); n.delete('fcas_revenue_per_mw_year'); return n })
@@ -486,7 +620,7 @@ export function BESSCalculator() {
         {model && model.sensitivity.length > 0 && <TornadoChart rows={model.sensitivity} t={t} />}
         {model && <DscrCurve yearly={model.yearly} t={t} />}
         {model && <CashflowTable yearly={model.yearly} t={t} />}
-        {defaults && model && <ProvenancePanel provenance={model.provenance} t={t} />}
+        {defaults && model && <ProvenancePanel provenance={displayedProvenance} t={t} />}
       </main>
     </div>
   )
@@ -575,6 +709,18 @@ function NumberInput({
           <span className="text-[9px] px-1 py-px rounded bg-[#7c5cf6]/15 text-[#7c5cf6] font-medium leading-none"
                 title={provenance.note}>RULE</span>
         )}
+        {!dirty && provenance?.source === 'observed_benchmark' && (
+          <span className="text-[9px] px-1 py-px rounded bg-positive/15 text-positive font-medium leading-none"
+                title={provenance.note}>DUID ACTUALS</span>
+        )}
+        {!dirty && provenance?.source === 'project_input_required' && (
+          <span className="text-[9px] px-1 py-px rounded bg-warn/15 text-warn font-medium leading-none"
+                title={provenance.note}>PROJECT INPUT</span>
+        )}
+        {!dirty && provenance?.source === 'unmodelled' && (
+          <span className="text-[9px] px-1 py-px rounded bg-surfaceAlt text-muted font-medium leading-none"
+                title={provenance.note}>NO ASSUMPTION</span>
+        )}
       </span>
       <div className="relative">
         <input
@@ -595,16 +741,163 @@ function NumberInput({
 }
 
 // =========================================================================
-// BacktestPanel — runs the BESS spec over historical RRP to compute the
-// real annual revenue (vs the naive "median × cycles × 365" guess).
-// Shows annual headline, energy + FCAS split, monthly stacked bars, best
-// day, and a "Use these values" button to snap the manual revenue inputs.
+// ObservedBenchmarkPanel — the primary revenue assumption rail. Each row is
+// traceable to public DUID dispatch and per-service FCAS enablement; the
+// target operating case uses realised cash margin and realised cycling; the
+// perfect-foresight optimiser remains a separate market-opportunity ceiling.
+// =========================================================================
+
+function ObservedBenchmarkPanel({
+  benchmark, loading, err, currentMlf, onApplyBase, t,
+}: {
+  benchmark: BessBenchmarkResponse | null
+  loading: boolean
+  err: string | null
+  currentMlf: number
+  onApplyBase: () => void
+  t: (k: string, ...a: any[]) => string
+}) {
+  if (err) {
+    return (
+      <div className="rounded-md border border-warn/30 bg-warn/[0.06] p-3 text-[10px] leading-relaxed text-warn">
+        {t('bc.bm.unavailable')}: {err}
+      </div>
+    )
+  }
+  if (!benchmark) {
+    return (
+      <div className="rounded-md border border-hairlineSoft bg-surfaceAlt/40 p-3 text-[10px] text-muted">
+        {loading ? t('bc.bm.loading') : t('bc.bm.waiting')}
+      </div>
+    )
+  }
+  if (!benchmark.available || !benchmark.scenarios) {
+    return (
+      <div className="rounded-md border border-hairlineSoft bg-surfaceAlt/40 p-3 text-[10px] leading-relaxed text-muted">
+        <div className="font-semibold text-ink2 mb-1">{t('bc.bm.noRegionalActuals')}</div>
+        {benchmark.reason ?? benchmark.benchmark?.reason ?? t('bc.bm.saOnly')}
+      </div>
+    )
+  }
+
+  const rows = [
+    ['conservative', benchmark.scenarios.conservative],
+    ['base', benchmark.scenarios.base],
+    ['upside', benchmark.scenarios.upside],
+  ] as const
+  const operational = benchmark.benchmark.entries.filter((entry) => entry.operational_comparable)
+  const commissioning = benchmark.benchmark.entries.filter((entry) => !entry.operational_comparable)
+  const fmtM = (value: number) => `$${(value / 1_000_000).toFixed(1)}M`
+  const fmtPerMw = (value: number) => `$${(value / 1000).toFixed(1)}k`
+  const period = benchmark.period_start && benchmark.period_end_exclusive
+    ? `${benchmark.period_start.slice(0, 10)}—${benchmark.period_end_exclusive.slice(0, 10)}`
+    : 'FY2025–26'
+
+  return (
+    <div className="rounded-md border border-hairlineSoft bg-surfaceAlt/35 overflow-hidden mb-2.5">
+      <div className="px-3 py-2.5 border-b border-hairlineSoft bg-surface">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] px-1.5 py-px rounded bg-positive/15 text-positive font-bold tracking-wide">
+                DUID ACTUALS
+              </span>
+              <span className="text-[10px] font-semibold text-ink">{t('bc.bm.title')}</span>
+            </div>
+            <div className="text-[9px] text-muted mt-1">
+              {period} · {operational.length} {t('bc.bm.operational')} · {benchmark.benchmark.fcas_active_duids.length} FCAS-active
+            </div>
+          </div>
+          {loading && <span className="text-[9px] text-muted animate-pulse">{t('bc.bm.recomputing')}</span>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[70px_repeat(3,minmax(0,1fr))] px-2.5 pt-2 text-[8px] uppercase tracking-wider text-muted">
+        <span>{t('bc.bm.case')}</span>
+        <span className="text-right text-[#d97706]">{t('bc.bm.energy')}</span>
+        <span className="text-right text-positive">FCAS</span>
+        <span className="text-right">{t('bc.bm.total')}</span>
+      </div>
+      <div className="px-2 py-1.5 space-y-0.5">
+        {rows.map(([name, scenario]) => (
+          <div key={name}
+               className={`grid grid-cols-[68px_repeat(3,minmax(0,1fr))] items-center gap-x-0.5 rounded px-1.5 py-1.5 text-[10px] tabular-nums ${
+                 name === 'base' ? 'bg-surface border-l-2 border-accent' : 'border-l-2 border-transparent'
+               }`}>
+            <span className={name === 'base' ? 'font-semibold text-ink' : 'text-ink2'}>
+              {t(`bc.bm.${name}`)}
+              <span className="block text-[8px] font-normal text-muted">{scenario.mean_cycles_per_day.toFixed(2)}x/d</span>
+            </span>
+            <span className="text-right text-[#b85f00]">
+              <span className="block">{fmtM(scenario.energy_revenue_aud)}</span>
+              <span className="block text-[8px] font-normal text-muted">${scenario.energy_cash_margin_per_mwh.toFixed(0)}/MWh</span>
+            </span>
+            <span className="text-right text-positive">{fmtM(scenario.fcas_revenue_aud)}</span>
+            <span className="text-right font-semibold text-ink">{fmtM(scenario.combined_revenue_aud)}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mx-3 mb-2 px-2 py-1.5 border-y border-hairlineSoft text-[9px] text-muted leading-relaxed">
+        <span className="text-[#b85f00] font-medium">Energy</span>: {t('bc.bm.energyMethod')}
+        <span className="mx-1.5">·</span>
+        <span className="text-positive font-medium">FCAS</span>: {t('bc.bm.fcasMethod')}
+        <span className="block mt-1 text-ink2">
+          {t('bc.bm.baseBridge')}: {fmtM(benchmark.scenarios.base.energy_revenue_aud)} − {fmtM(benchmark.scenarios.base.degradation_hurdle_cost_aud)} = {fmtM(benchmark.scenarios.base.energy_economic_net_aud)}
+        </span>
+      </div>
+
+      {Math.abs(currentMlf - 1.0) < 0.0001 && (
+        <div className="mx-3 mb-2 rounded border border-warn/20 bg-warn/[0.06] px-2 py-1.5 text-[9px] leading-relaxed text-warn">
+          {t('bc.bm.mlfWarning')}
+        </div>
+      )}
+
+      <details className="mx-3 mb-2 group">
+        <summary className="cursor-pointer text-[9px] text-ink2 hover:text-ink select-none">
+          {t('bc.bm.showComparables')} ({operational.length})
+        </summary>
+        <div className="mt-1.5 overflow-x-auto border-t border-hairlineSoft">
+          <div className="grid grid-cols-[62px_36px_1fr_1fr] gap-x-1 py-1 text-[8px] uppercase tracking-wider text-muted">
+            <span>DUID</span><span>h</span><span className="text-right">Energy $/MWh</span><span className="text-right">FCAS/MW</span>
+          </div>
+          {operational.map((entry) => (
+            <div key={entry.duid} className="grid grid-cols-[62px_36px_1fr_1fr] gap-x-1 border-t border-hairlineSoft/70 py-1 text-[9px] tabular-nums">
+              <span className="font-medium text-ink2" title={entry.station}>{entry.duid}</span>
+              <span className="text-muted">{entry.inferred_duration_h.toFixed(1)}</span>
+              <span className="text-right text-[#b85f00]">${entry.energy_cash_margin_per_discharge_mwh.toFixed(0)}</span>
+              <span className="text-right text-positive">{fmtPerMw(entry.fcas_revenue_per_mw_year)}</span>
+            </div>
+          ))}
+          {commissioning.length > 0 && (
+            <div className="pt-1.5 text-[8px] leading-relaxed text-muted">
+              {commissioning.map((entry) => entry.duid).join(', ')} {t('bc.bm.commissioningExcluded')}
+            </div>
+          )}
+        </div>
+      </details>
+
+      <div className="px-3 pb-2.5">
+        <button onClick={onApplyBase}
+                className="w-full text-[10px] py-1.5 rounded-md bg-ink text-surface font-medium hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+                disabled={loading}>
+          {t('bc.bm.applyBase')}
+        </button>
+        <div className="text-[8px] text-muted leading-relaxed mt-1.5">
+          {t('bc.bm.limitations')}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// =========================================================================
+// BacktestPanel — auditable perfect-foresight energy upper bound.
 // =========================================================================
 
 function BacktestPanel({
   backtest, loading, err, lookback, onLookbackChange,
   degCostPerMwh, onDegCostChange, maxCyclesPerDay, onMaxCyclesChange,
-  onUseBacktest,
   onBackfill, backfillRunning, backfillDone, backfillDbDays,
   backfillMonthsDone, backfillMonthsTotal, t,
 }: {
@@ -617,7 +910,6 @@ function BacktestPanel({
   onDegCostChange: (v: number) => void
   maxCyclesPerDay: number
   onMaxCyclesChange: (v: number) => void
-  onUseBacktest: () => void
   onBackfill: () => void
   backfillRunning: boolean
   backfillDone: boolean
@@ -627,7 +919,11 @@ function BacktestPanel({
   t: (k: string, ...a: any[]) => string
 }) {
   const nDays = backtest?.energy?.n_days_backtested ?? backtest?.fcas?.n_days_backtested ?? 0
-  const hasFullYear = nDays >= 360
+  // A few current/source-gap days are deliberately excluded unless all 288
+  // intervals are present.  Treat >=95% of the selected window as sufficient
+  // coverage instead of incorrectly prompting for a full-year backfill on a
+  // deliberately selected 90-day window.
+  const hasSufficientCoverage = nDays >= Math.floor(lookback * 0.95)
 
   if (err) {
     return (
@@ -648,36 +944,36 @@ function BacktestPanel({
   const fmtM = (v: number) => `$${(v / 1_000_000).toFixed(2)}M`
   const fmtK = (v: number) => `$${(v / 1_000).toFixed(0)}k`
 
-  // Build monthly stacked data — match months across both energy & fcas
+  // Build monthly energy cash revenue; FCAS lives in the observed benchmark.
   const months: { month: string; energy: number; fcas: number }[] = []
   const allMonths = new Set<string>()
   e?.monthly.forEach(m => allMonths.add(m.month))
   f?.monthly.forEach(m => allMonths.add(m.month))
   const sortedMonths = Array.from(allMonths).sort()
   for (const m of sortedMonths) {
-    const eRev = e?.monthly.find(x => x.month === m)?.energy_revenue_aud ?? 0
+    const eRev = e?.monthly.find(x => x.month === m)?.gross_market_revenue_aud ?? 0
     const fRev = f?.monthly.find(x => x.month === m)?.fcas_revenue_aud ?? 0
     months.push({ month: m, energy: eRev, fcas: fRev })
   }
   const maxMonthRev = Math.max(...months.map(m => m.energy + m.fcas), 1)
 
   return (
-    <div className="rounded-md border border-positive/25 bg-positive/[0.05] p-3 mb-2.5">
+    <div className="rounded-md border border-hairlineSoft bg-surface p-3 mb-2.5">
       {/* Header line */}
       <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-[10px] px-1.5 py-px rounded-full bg-positive text-white font-bold tracking-wide">
-            BACKTEST
+          <span className="text-[9px] px-1.5 py-px rounded bg-[#ff9500]/15 text-[#b85f00] font-bold tracking-wide">
+            ENERGY UPPER
           </span>
           <span className="text-[11px] text-ink2">
             {backtest.spec.power_mw}MW / {backtest.spec.duration_h.toFixed(1)}h · RTE {backtest.spec.rte_pct.toFixed(0)}%
-            {e && <> · <span className="text-positive font-medium">{e.mean_cycles_per_day.toFixed(2)}×/day avg</span></>}
+            {e && <> · <span className="text-[#b85f00] font-medium">{e.mean_cycles_per_day.toFixed(2)}×/day avg</span></>}
           </span>
         </div>
         <div className="text-right">
-          <div className={`text-[18px] font-semibold tabular-nums leading-none text-positive ${loading ? 'opacity-50' : ''}`}>
+          <div className={`text-[18px] font-semibold tabular-nums leading-none text-[#b85f00] ${loading ? 'opacity-50' : ''}`}>
             {fmtM(backtest.annual_total_revenue_aud)}
-            <span className="text-[10px] text-muted font-normal ml-1">/yr</span>
+            <span className="text-[10px] text-muted font-normal ml-1">{t('bc.bt.scenarioPerYear')}</span>
           </div>
           {loading && <div className="text-[9px] text-muted mt-0.5 animate-pulse">recomputing…</div>}
         </div>
@@ -702,7 +998,7 @@ function BacktestPanel({
       </div>
 
       {/* Backfill banner — shown when DB has < 360d, prompts user to top-up */}
-      {!hasFullYear && (
+      {!hasSufficientCoverage && (
         <div className={`mb-2 rounded px-2.5 py-2 text-[10px] flex items-center gap-2 ${
           backfillRunning
             ? 'bg-accent/[0.08] border border-accent/20 text-accent'
@@ -738,7 +1034,7 @@ function BacktestPanel({
       )}
 
       {/* Energy / FCAS breakdown */}
-      <div className="grid grid-cols-2 gap-2 mb-2.5 text-[10px]">
+      <div className={`grid ${f ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-2.5 text-[10px]`}>
         {e && (
           <div className="bg-surface rounded-md p-2 ring-1 ring-hairlineSoft">
             <div className="text-muted uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -746,45 +1042,20 @@ function BacktestPanel({
               {t('bc.bt.energy')}
             </div>
             <div className="text-[14px] font-semibold tabular-nums text-ink leading-tight">
-              {fmtM(e.annual_revenue_aud)}
+              {fmtM(e.annual_captured_market_revenue_aud)}
             </div>
             <div className="text-[10px] text-muted mt-0.5 tabular-nums">
-              {t('bc.bt.impliedSpread')}: <span className="text-ink2 font-medium">${e.implied_spread_per_mwh}/MWh</span>
+              {t('bc.bt.impliedSpread')}: <span className="text-ink2 font-medium">${e.captured_market_margin_per_mwh}/MWh</span>
             </div>
             <div className="text-[10px] text-muted tabular-nums">
-              {t('bc.bt.capture')} {(e.capture_efficiency * 100).toFixed(0)}% · MLF {e.mlf_applied}
+              {t('bc.bt.economicNet')} {fmtM(e.annual_revenue_aud)} · {t('bc.bt.degHurdle')} {fmtM(e.annual_degradation_cost_aud)}
             </div>
             <div className="text-[10px] text-muted tabular-nums">
               {t('bc.bt.bestDay')}: <span className="text-ink2">{e.best_day.date ? `${e.best_day.date.slice(5)} ${fmtK(e.best_day.revenue)}` : '—'}</span>
             </div>
           </div>
         )}
-        {e && e.annual_fcas_revenue_aud != null ? (
-          <div className="bg-surface rounded-md p-2 ring-1 ring-hairlineSoft">
-            <div className="text-muted uppercase tracking-wider mb-1 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-sm bg-positive" />
-              {t('bc.bt.fcas')}
-            </div>
-            <div className="text-[14px] font-semibold tabular-nums text-ink leading-tight">
-              +{fmtM(e.annual_fcas_revenue_aud)}
-            </div>
-            {e.mean_idle_intervals_per_day != null && (
-              <div className="text-[10px] text-muted mt-0.5 tabular-nums">
-                {e.mean_idle_intervals_per_day.toFixed(0)} avg idle intervals/day
-              </div>
-            )}
-            {e.mean_fcas_per_mwh_yr != null && (
-              <div className="text-[10px] text-muted tabular-nums">
-                raw ${(e.mean_fcas_per_mwh_yr / 1000).toFixed(1)}k/MW/yr
-              </div>
-            )}
-            {e.fcas_capture != null && (
-              <div className="text-[10px] text-muted tabular-nums">
-                capture {(e.fcas_capture * 100).toFixed(0)}%
-              </div>
-            )}
-          </div>
-        ) : f ? (
+        {f ? (
           <div className="bg-surface rounded-md p-2 ring-1 ring-hairlineSoft">
             <div className="text-muted uppercase tracking-wider mb-1 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-sm bg-positive" />
@@ -797,19 +1068,18 @@ function BacktestPanel({
               {t('bc.bt.impliedPerMw')}: <span className="text-ink2 font-medium">${(f.per_mw_year_after_util / 1000).toFixed(1)}k/MW/yr</span>
             </div>
             <div className="text-[10px] text-muted tabular-nums">
-              util {(f.utilisation * 100).toFixed(0)}% · raw ${(f.raw_per_mw_year / 1000).toFixed(0)}k
+              {t('bc.bt.assumedEnabled')} {(f.utilisation * 100).toFixed(0)}% · raw ${(f.raw_per_mw_year / 1000).toFixed(0)}k
+            </div>
+            <div className="text-[10px] text-muted tabular-nums">
+              {f.dominant_market} {f.dominant_market_share_pct.toFixed(0)}% · top 10d {f.top_10_days_share_pct.toFixed(0)}%
             </div>
           </div>
         ) : null}
       </div>
 
-      {/* Combined revenue total from integrated FCAS */}
-      {e && e.annual_combined_revenue_aud != null && (
-        <div className="mb-2.5 px-2 py-1.5 rounded-md bg-surfaceAlt/60 ring-1 ring-hairlineSoft flex items-baseline justify-between text-[10px]">
-          <span className="text-muted uppercase tracking-wider">{t('bc.bt.combined')}</span>
-          <span className="text-[14px] font-semibold tabular-nums text-positive leading-tight">
-            ={fmtM(e.annual_combined_revenue_aud)}/yr
-          </span>
+      {f && !f.is_realised_revenue && (
+        <div className="mb-2.5 rounded px-2.5 py-2 text-[10px] leading-relaxed bg-warn/[0.08] border border-warn/20 text-warn">
+          {t('bc.bt.fcasWarning')}
         </div>
       )}
 
@@ -926,11 +1196,6 @@ function BacktestPanel({
         </div>
       )}
 
-      {/* Action: snap inputs to backtested values */}
-      <button onClick={onUseBacktest}
-              className="w-full text-[11px] py-2 rounded-md bg-positive text-white font-medium hover:opacity-90 transition-opacity">
-        {t('bc.bt.useValues')}
-      </button>
       <div className="text-[9px] text-muted mt-1.5 leading-relaxed">
         {t('bc.bt.methodology')}
       </div>
@@ -939,9 +1204,8 @@ function BacktestPanel({
 }
 
 // =========================================================================
-// SpreadWaterfall — shows how the raw NSW price-spread gets haircut
-// step-by-step (RTE → MLF → capture efficiency) to arrive at the net
-// implied $/MWh that feeds the revenue model.
+// SpreadWaterfall — shows how the raw market spread gets converted into the
+// net margin that feeds the finance model (including degradation).
 // =========================================================================
 
 function SpreadWaterfall({
@@ -977,6 +1241,13 @@ function SpreadWaterfall({
       value: h.after_capture_per_mwh,
       loss: h.after_mlf_aux_per_mwh - h.after_capture_per_mwh,
       lossPct: h.capture_loss_pct,
+      color: '#ff9500',
+    },
+    {
+      label: t('bc.wf.afterDegradation', 'After degradation'),
+      value: h.after_degradation_per_mwh,
+      loss: h.after_capture_per_mwh - h.after_degradation_per_mwh,
+      lossPct: h.degradation_loss_pct,
       color: '#34c759',
     },
   ]
@@ -1005,8 +1276,8 @@ function SpreadWaterfall({
                 </div>
               </div>
               {s.lossPct !== null && (
-                <div className="w-[36px] shrink-0 text-right text-[9px] text-negative tabular-nums">
-                  −{s.lossPct.toFixed(1)}%
+                <div className={`w-[36px] shrink-0 text-right text-[9px] tabular-nums ${s.lossPct >= 0 ? 'text-negative' : 'text-positive'}`}>
+                  {s.lossPct >= 0 ? `−${s.lossPct.toFixed(1)}%` : `+${Math.abs(s.lossPct).toFixed(1)}%`}
                 </div>
               )}
               {s.lossPct === null && <div className="w-[36px] shrink-0" />}
@@ -1016,7 +1287,7 @@ function SpreadWaterfall({
       </div>
       <div className="mt-1 text-[9px] text-muted leading-relaxed">
         {t('bc.wf.hint',
-          `Raw spread (top ${Math.round(h.gross_market_spread_per_mwh > 0 ? 100 * h.after_capture_per_mwh / h.gross_market_spread_per_mwh : 0)}% retained after RTE, MLF and capture efficiency haircuts)`
+          `Raw spread (top ${Math.round(h.gross_market_spread_per_mwh > 0 ? 100 * h.after_degradation_per_mwh / h.gross_market_spread_per_mwh : 0)}% retained after all losses and degradation)`
         )}
       </div>
     </div>
@@ -1122,7 +1393,9 @@ function CalibrationStrip({ stats, displayScale, onReset }: {
     ? '—'
     : (v / displayScale).toLocaleString('en-AU', { maximumFractionDigits: 1 })
 
-  const median = isFcas ? stats.value : stats.median
+  // The calibrated model value is a discharge-weighted annual point estimate;
+  // daily median/IQR remain useful context but must not replace the reset value.
+  const point = stats.value
   const p25 = isFcas ? null : stats.p25
   const p75 = isFcas ? null : stats.p75
   // For FCAS the backend now ships `last_7d_mean` already annualised +
@@ -1134,7 +1407,7 @@ function CalibrationStrip({ stats, displayScale, onReset }: {
   return (
     <div className="mt-1 px-2 py-1 bg-positive/[0.06] border border-positive/15 rounded text-[10px] flex items-center gap-x-3 gap-y-0.5 flex-wrap">
       <span className="text-positive font-medium tabular-nums">
-        ≈ {fmt(median)}
+        ≈ {fmt(point)}
       </span>
       {!isFcas && p25 !== undefined && p75 !== undefined && (
         <span className="text-muted tabular-nums">
@@ -1144,7 +1417,7 @@ function CalibrationStrip({ stats, displayScale, onReset }: {
       {last7 !== null && last7 !== undefined && (
         <span className="text-muted tabular-nums">
           7d <span className={
-            Math.abs(last7 - (median ?? 0)) / (median || 1) > 0.2
+            Math.abs(last7 - point) / (point || 1) > 0.2
               ? 'text-warn font-medium'
               : 'text-ink2'
           }>{fmt(last7)}</span>
@@ -1162,7 +1435,7 @@ function CalibrationStrip({ stats, displayScale, onReset }: {
         <button onClick={onReset}
                 className="ml-auto text-positive hover:underline font-medium tabular-nums"
                 title="Reset to calibrated value">
-          ↺ use {fmt(median)}
+          ↺ use {fmt(point)}
         </button>
       )}
     </div>
@@ -1478,6 +1751,9 @@ function ProvenancePanel({ provenance, t }: {
     industry:          { bg: 'bg-accent/12',   fg: 'text-accent',   label: 'Industry default' },
     regulatory:        { bg: 'bg-[#7c5cf6]/12', fg: 'text-[#7c5cf6]', label: 'Regulatory (ATO/AEMO)' },
     regional_baseline: { bg: 'bg-[#0a84ff]/12', fg: 'text-[#0a84ff]', label: 'Regional baseline' },
+    observed_benchmark:{ bg: 'bg-positive/12', fg: 'text-positive', label: 'Observed DUID benchmark' },
+    project_input_required: { bg: 'bg-warn/12', fg: 'text-warn', label: 'Project-specific input required' },
+    unmodelled:        { bg: 'bg-surfaceAlt', fg: 'text-muted', label: 'No automatic assumption' },
   }
   // Group by source
   const grouped: Record<string, { key: string; note?: string }[]> = {}

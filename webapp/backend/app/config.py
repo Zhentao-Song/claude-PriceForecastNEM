@@ -35,14 +35,14 @@ POLL_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 30.0
 USER_AGENT = "claude-nem-dashboard/0.1 (research)"
 
-# ── NER reliability settings, FY2025-26 (effective 1 July 2025) ─────────────
-# AEMC reliability settings: MPC $17,500/MWh · CPT $1,576,800 · APC $600/MWh.
+# ── NER reliability settings, FY2026-27 (effective 1 July 2026) ─────────────
+# AEMC reliability settings: MPC $23,200/MWh · CPT $2,225,900 · APC $600/MWh.
 # The Cumulative Price Threshold is compared against the rolling sum of the
 # last 2,016 dispatch prices (7 days × 288 five-min intervals) per region;
 # once breached, AEMO caps that region's spot price at the APC ($600) until
 # the cumulative price falls back below the threshold. Indexed each 1 July —
 # update here (or via env) when AEMC publishes the next FY's settings.
-CPT_THRESHOLD_AUD = 1_576_800.0
+CPT_THRESHOLD_AUD = 2_225_900.0
 CPT_INTERVALS = 2_016        # 7 days × 288
 APC_PRICE_AUD = 600.0
 

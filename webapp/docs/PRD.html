@@ -69,7 +69,7 @@ ul{margin:6px 0;padding-left:20px}li{margin:2px 0}strong{color:#000}</style></he
 <li><strong>FR-1.5</strong> 提供 K 线图视图（OHLC，按 30/60/120 分钟分桶），含 6h 默认窗口 + 拖动滑窗；hover 显示开高低收 + 涨跌幅。</li>
 <li><strong>FR-1.6</strong> 历史日查询：日期选择器，范围 = 本地归档区间；返回选定日 288 个 5 分钟价格 + 当日最高/最低/均价/价差/负价区间数/&gt;$300 区间数。</li>
 <li><strong>FR-1.7</strong> 燃料组合实时图按燃料堆叠展示出力 + 各燃料利用率%（当前出力/装机）。</li>
-<li><strong>FR-1.8</strong> CPT 累积价格：实时计算滚动 7 天累积 RRP，对比 $1,490,700 阈值，APC 徽章显示 未触发/接近/已触发。</li>
+<li><strong>FR-1.8</strong> CPT 累积价格：实时计算滚动 7 天累积 RRP，对比 $2,225,900 阈值，APC 徽章显示 未触发/接近/已触发。</li>
 <li><strong>FR-1.9</strong> FCAS 矩阵展示 8 个辅助服务市场当前价格。</li>
 <li><strong>FR-1.10</strong> 90 天价格热力图（横轴小时、纵轴日期、色阶价格）。</li>
 <li><strong>FR-1.11</strong> PASA 充裕度：未来 14 天需求三分位（D10/50/90）、可用发电、LOR 等级，支持 30min/日聚合切换。</li>
@@ -85,7 +85,7 @@ ul{margin:6px 0;padding-left:20px}li{margin:2px 0}strong{color:#000}</style></he
 <ul>
 <li>加载中：骨架/「加载中…」占位。</li>
 <li>无数据：某燃料全程为 0 则从图例剔除；历史日无数据显示「该日期无数据」。</li>
-<li>边界：负价时 K 线/曲线 y 轴跨零，显示 $0 参考线；价格触顶（$16,600）正常显示不截断。</li>
+<li>边界：负价时 K 线/曲线 y 轴跨零，显示 $0 参考线；价格触顶（$23,200）正常显示不截断。</li>
 <li>错误：单接口失败不阻塞整页，对应卡片显示占位，其余照常。</li>
 </ul>
 <h3>2.6 成功指标</h3>
@@ -262,7 +262,7 @@ ul{margin:6px 0;padding-left:20px}li{margin:2px 0}strong{color:#000}</style></he
 <h2>附录 A · 数据字典（核心字段）</h2>
 <table><thead><tr><th>字段</th><th>定义</th><th>单位</th><th>来源</th></tr></thead><tbody><tr><td>RRP</td><td>区域参考价</td><td>$/MWh</td><td>DISPATCH_PRICE</td></tr><tr><td>TOTALDEMAND</td><td>区域需求</td><td>MW</td><td>DISPATCH_REGIONSUM</td></tr><tr><td>SCADAVALUE</td><td>机组实时出力</td><td>MW</td><td>DISPATCH_UNIT_SCADA</td></tr><tr><td>MLF</td><td>边际损失因子（发电×、负荷÷，FCAS 不受影响）</td><td>比率</td><td>注册档案 TLF</td></tr><tr><td>MAXAVAIL</td><td>某档/区间最大可用</td><td>MW</td><td>BIDPEROFFER</td></tr><tr><td>PRICEBAND1-10</td><td>10 档报价价格</td><td>$/MWh</td><td>BIDDAYOFFER</td></tr><tr><td>DIRECTION</td><td>报价方向 GEN/LOAD</td><td>枚举</td><td>BIDDAYOFFER</td></tr><tr><td>POWER</td><td>屋顶光伏出力</td><td>MW</td><td>ROOFTOP_ACTUAL</td></tr><tr><td>DEMAND10/50/90</td><td>充裕度需求三分位</td><td>MW</td><td>STPASA</td></tr><tr><td>利用率</td><td>当前出力 ÷ 注册容量</td><td>%</td><td>派生</td></tr><tr><td>价差(spread)</td><td>放电均价 − 充电均价</td><td>$/MWh</td><td>派生</td></tr></tbody></table>
 <h2>附录 B · NEM 市场规则速查</h2>
-<table><thead><tr><th>概念</th><th>规则</th></tr></thead><tbody><tr><td>区域</td><td>NSW1/QLD1/VIC1/SA1/TAS1 独立定价</td></tr><tr><td>调度周期</td><td>5 分钟出清与结算</td></tr><tr><td>交易日</td><td>04:05 → 次日 04:00，288 区间</td></tr><tr><td>价格区间</td><td>−$1,000 ~ $16,600/MWh</td></tr><tr><td>FCAS</td><td>8 市场：RAISE/LOWER × 6SEC/60SEC/5MIN/REG（+1SEC 快速 FCAS）</td></tr><tr><td>CPT/APC</td><td>滚动 7 天累积 $1,490,700 → APC（约 $600 管制）</td></tr><tr><td>LOR</td><td>LOR1 预警 / LOR2 短缺 / LOR3 可能拉闸</td></tr><tr><td>竞价披露</td><td>D+1</td></tr><tr><td>屋顶光伏</td><td>卫星估算，30 分钟，非调度</td></tr></tbody></table>
+<table><thead><tr><th>概念</th><th>规则</th></tr></thead><tbody><tr><td>区域</td><td>NSW1/QLD1/VIC1/SA1/TAS1 独立定价</td></tr><tr><td>调度周期</td><td>5 分钟出清与结算</td></tr><tr><td>交易日</td><td>04:05 → 次日 04:00，288 区间</td></tr><tr><td>价格区间</td><td>−$1,000 ~ $23,200/MWh</td></tr><tr><td>FCAS</td><td>8 市场：RAISE/LOWER × 6SEC/60SEC/5MIN/REG（+1SEC 快速 FCAS）</td></tr><tr><td>CPT/APC</td><td>滚动 7 天累积 $2,225,900 → APC（约 $600 管制）</td></tr><tr><td>LOR</td><td>LOR1 预警 / LOR2 短缺 / LOR3 可能拉闸</td></tr><tr><td>竞价披露</td><td>D+1</td></tr><tr><td>屋顶光伏</td><td>卫星估算，30 分钟，非调度</td></tr></tbody></table>
 <h2>附录 C · 术语表</h2>
 <p>RRP 区域参考价 ｜ FCAS 频率控制辅助服务 ｜ MLF 边际损失因子 ｜</p>
 <p>CPT 累积价格阈值 ｜ APC 管理价格上限 ｜ LOR 储备短缺等级 ｜</p>

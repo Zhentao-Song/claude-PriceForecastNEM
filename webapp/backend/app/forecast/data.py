@@ -13,11 +13,11 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 
-# NEM administrative price bounds (FY2025-26): floor -$1,000, MPC $17,500.
+# NEM administrative price bounds (FY2026-27): floor -$1,000, MPC $23,200.
 # We clip a touch above MPC so a model is never *penalised* for a legitimate
 # cap-hitting forecast.
 NEM_FLOOR = -1000.0
-NEM_CAP = 17_500.0
+NEM_CAP = 23_200.0
 
 # NEM time is UTC+10 year-round (no daylight saving in the market clock).
 _NEM_OFFSET = timedelta(hours=10)

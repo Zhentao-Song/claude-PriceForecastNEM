@@ -800,7 +800,8 @@ export type BessCalibrationStats = {
 }
 
 export type BessProvenance = {
-  source: 'historical' | 'fallback' | 'industry' | 'regulatory' | 'regional_baseline'
+  source: 'historical' | 'fallback' | 'industry' | 'regulatory' | 'regional_baseline' |
+    'project_input_required' | 'unmodelled' | 'observed_benchmark'
   note?: string
   /** Populated for `source === 'historical'` — rich stats for UI display. */
   stats?: BessCalibrationStats | null
@@ -911,7 +912,6 @@ export type BessBacktestRequest = {
   aux_load_pct?: number
   lookback_days?: number
   capture_efficiency?: number
-  fcas_utilisation?: number
   /** Marginal degradation cost in $/MWh discharged (default 35). */
   deg_cost_per_mwh?: number
   /** Hard cap on cycles/day from thermal/warranty limit (default 2.0). */
@@ -920,7 +920,10 @@ export type BessBacktestRequest = {
 
 export type BessBacktestEnergyMonth = {
   month: string
+  /** Net revenue after all settlement haircuts and degradation. */
   energy_revenue_aud: number
+  gross_market_revenue_aud: number
+  degradation_cost_aud: number
   discharge_mwh: number
   charge_cost_aud: number
   n_days: number
@@ -942,40 +945,58 @@ export type BessBacktestHaircuts = {
   after_rte_per_mwh: number
   /** After applying MLF + aux load. */
   after_mlf_aux_per_mwh: number
-  /** After applying capture efficiency — what the BESS actually pockets
-   *  per MWh discharged. Same as `implied_spread_per_mwh`. */
+  /** Captured settlement margin before marginal degradation cost. */
   after_capture_per_mwh: number
+  /** Net earned margin after degradation. Same as implied_spread_per_mwh. */
+  after_degradation_per_mwh: number
   mean_daily_top_minus_bottom: number
   rte_loss_pct: number
   mlf_aux_loss_pct: number
   capture_loss_pct: number
+  degradation_loss_pct: number
 }
 
 export type BessBacktestEnergy = {
+  /** Net energy revenue after RTE, MLF, aux, capture and degradation. */
   annual_revenue_aud: number
-  annual_fcas_revenue_aud: number
-  annual_combined_revenue_aud: number
-  mean_fcas_per_mwh_yr?: number
-  mean_idle_intervals_per_day?: number
+  annual_captured_market_revenue_aud: number
+  annual_degradation_cost_aud: number
   implied_spread_per_mwh: number
+  captured_market_margin_per_mwh: number
   annual_discharge_mwh: number
+  annual_charge_mwh: number
   capture_efficiency: number
-  fcas_capture?: number
   /** Economically-optimal mean cycles/day across the backtest window. */
   mean_cycles_per_day: number
   max_cycles_per_day: number
   deg_cost_per_mwh: number
   n_days_backtested: number
+  n_days_excluded_incomplete: number
   n_days_positive: number
   /** Days where spread < degradation cost → BESS didn't dispatch. */
   n_days_idle: number
+  /** Days re-solved as a MILP to enforce no simultaneous charge/discharge. */
+  n_days_milp_complementarity: number
   /** How many days fell in each 0.5-cycle bucket, e.g. {"0.5":9,"1.0":23,"2.0":312} */
   cycle_histogram: Record<string, number>
   best_day: { date: string | null; revenue: number }
   worst_day: { date: string | null; revenue: number }
   monthly: BessBacktestEnergyMonth[]
   mlf_applied: number
+  methodology: 'chronological_soc_lp'
+  is_perfect_foresight: boolean
   haircuts: BessBacktestHaircuts
+  daily_results: {
+    date: string
+    revenue_aud: number
+    gross_market_revenue_aud: number
+    degradation_cost_aud: number
+    discharge_mwh: number
+    charge_mwh: number
+    net_margin_per_mwh: number
+    captured_market_margin_per_mwh: number
+    cycles: number
+  }[]
 }
 
 export type PriceForecastPoint = {
@@ -1042,13 +1063,63 @@ export type ForecastAccuracy = {
   evening_peak: [number, number]   // [startHour, endHour] high-volatility band
 }
 
+// ── ASX Energy electricity futures ----------------------------------------
+export type AsxFuturesContract = {
+  expiry: string
+  open: number | null
+  high: number | null
+  low: number | null
+  last: number | null
+  settlement: number | null
+  change: number | null
+  open_interest: number | null
+  open_interest_change: number | null
+  volume: number | null
+  contract_hours: number | null
+}
+
+export type AsxFuturesRegion = {
+  region: 'NSW' | 'QLD' | 'VIC' | 'SA'
+  region_name: string
+  commodity_code: string
+  contracts: AsxFuturesContract[]
+}
+
+export type AsxFuturesResponse = {
+  exchange: string
+  market: string
+  product: string
+  currency: 'AUD'
+  unit: '$/MWh'
+  price_type: 'end_of_day_settlement'
+  trading_date: string
+  retrieved_at: string
+  source_url: string
+  stale?: boolean
+  warning?: string
+  regions: AsxFuturesRegion[]
+}
+
 export type BessBacktestFcas = {
   annual_revenue_aud: number
   per_mw_year_after_util: number
   raw_per_mw_year: number
   utilisation: number
   n_days_backtested: number
+  n_days_excluded_incomplete: number
   by_market_per_mw_year: Record<string, number>
+  daily_mean: number
+  daily_median: number
+  daily_p25: number
+  daily_p75: number
+  last_7d_per_mw_year_after_util: number
+  last_30d_per_mw_year_after_util: number
+  top_10_days_share_pct: number
+  dominant_market: string
+  dominant_market_share_pct: number
+  methodology: 'regional_price_exposure_proxy'
+  is_realised_revenue: false
+  warning: string
   monthly: BessBacktestFcasMonth[]
 }
 
@@ -1060,10 +1131,110 @@ export type BessBacktestResponse = {
   }
   lookback_days: number
   capture_efficiency: number
-  fcas_utilisation: number
   energy: BessBacktestEnergy | null
   fcas: BessBacktestFcas | null
+  annual_energy_revenue_aud: number
+  annual_fcas_price_exposure_aud: number
   annual_total_revenue_aud: number
+  total_is_scenario_not_realised: boolean
+}
+
+export type BessBenchmarkRange = {
+  p25: number
+  median: number
+  p75: number
+  min: number
+  max: number
+  n: number
+  method?: string
+}
+
+export type BessBenchmarkEntry = {
+  duid: string
+  station: string
+  capacity_mw: number
+  mlf: number
+  observed_energy_mwh: number
+  inferred_duration_h: number
+  equivalent_cycles_per_day: number
+  observed_power_mw: number
+  intervals: number
+  coverage_days: number
+  coverage_ratio: number
+  active_days: number
+  fcas_active_days: number
+  first_interval: string
+  last_interval: string
+  energy_revenue_observed_aud: number
+  energy_cash_margin_per_discharge_mwh: number
+  discharge_revenue_settled_aud: number
+  charge_cost_settled_aud: number
+  energy_revenue_per_mw_year: number
+  discharge_mwh_observed: number
+  charge_mwh_observed: number
+  fcas_revenue_observed_aud: number
+  fcas_revenue_per_mw_year: number
+  fcas_by_market_observed_aud: Record<string, number>
+  annualisation_factor: number
+  operational_comparable: boolean
+  fcas_comparable: boolean
+  perfect_foresight_energy_per_mw_year?: number
+  observed_energy_capture_ratio?: number
+}
+
+export type BessObservedBenchmark = {
+  available: boolean
+  reason?: string
+  region?: BessRegion
+  period_start?: string
+  period_end_exclusive?: string
+  methodology?: string
+  limitations?: string[]
+  entries: BessBenchmarkEntry[]
+  eligible_duids: string[]
+  fcas_active_duids: string[]
+  observed_energy_per_mw_year: BessBenchmarkRange
+  observed_energy_cash_margin_per_mwh: BessBenchmarkRange
+  observed_fcas_per_mw_year: BessBenchmarkRange
+  observed_cycles_per_day: BessBenchmarkRange
+  energy_capture_ratio?: BessBenchmarkRange
+}
+
+export type BessBenchmarkScenario = {
+  capture_ratio?: number
+  operating_benchmark_quantile?: number
+  energy_revenue_aud: number
+  energy_economic_net_aud: number
+  degradation_hurdle_cost_aud: number
+  energy_cash_margin_per_mwh: number
+  energy_net_margin_per_mwh: number
+  mean_cycles_per_day: number
+  fcas_revenue_per_mw_year: number
+  fcas_revenue_aud: number
+  combined_revenue_aud: number
+}
+
+export type BessBenchmarkResponse = {
+  available: boolean
+  reason?: string
+  region?: BessRegion
+  period_start?: string
+  period_end_exclusive?: string
+  target?: {
+    power_mw: number
+    duration_h: number
+    rte_pct: number
+    mlf: number
+    aux_load_pct: number
+    deg_cost_per_mwh: number
+    max_cycles_per_day: number
+  }
+  scenarios?: Record<'conservative' | 'base' | 'upside' | 'perfect_foresight_upper', BessBenchmarkScenario>
+  benchmark: BessObservedBenchmark
+  target_adjusted_energy_cash_margin_per_mwh?: BessBenchmarkRange
+  projected_energy_revenue_aud?: BessBenchmarkRange
+  methodology?: string
+  is_observed_benchmark_not_forecast?: boolean
 }
 
 export type BessModelResponse = {

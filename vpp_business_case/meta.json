@@ -1,0 +1,20 @@
+{
+  "region": "NSW1",
+  "source": "AEMO DISPATCHPRICE (real 5-min)",
+  "period": "2025-01-01 00:05:00 .. 2025-03-31 00:00:00",
+  "days": 90,
+  "intervals": 25632,
+  "rrp_mean": 88.1,
+  "rrp_neg_pct": 12.4,
+  "assumptions": {
+    "RT_EFF": 0.9,
+    "DEGR_COST": 50.0,
+    "ARB_SEASONAL": 0.8,
+    "FORESIGHT": 0.85,
+    "FCAS_SEASONAL": 0.9,
+    "FCAS_AVAIL": 0.5,
+    "OPERATOR_SHARE": 0.3,
+    "MAX_CYCLES": 1,
+    "work_hours": "Mon-Fri 08-17 blocked for C&I"
+  }
+}

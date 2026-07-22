@@ -1,0 +1,4 @@
+segment,sites,operator_A_year,operator_B_year,operator_uplift_year
+Residential,1000,279000,325000,46000
+C&I,100,248500,458700,210200
+TOTAL,1100,527500,783700,256200

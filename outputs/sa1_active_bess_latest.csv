@@ -1,0 +1,16 @@
+duid,station,capacity_mw,lat,lon,coordinate_source
+BLYTHB1,Blyth Battery Energy Storage System,281,-33.86,138.48,Blyth West substation approx
+TIB1,Torrens Island BESS,250,-34.81,138.54,project
+BUNGAMB1,Bungama Battery Energy Storage System,217,-33.18,138.04,Bungama substation approx
+HPR1,Hornsdale Power Reserve,150,-33.1,138.3,project
+TEMPB1,Templers Battery Energy Storage System,138,-34.467824,138.755471,Network Map/KCI
+MANNUMB1,Mannum Battery Energy Storage System,131,-34.959954,139.213446,Network Map/KCI
+CGBESS01,Clements Gap BESS,90,-33.51,138.08,Clements Gap substation approx
+TB2B1,Tailem Bend 2 Hybrid Renewable Power Station,50,-35.27,139.45,project Tailem Bend site
+DALNTH1,Dalrymple North BESS,30,-34.83,137.6,project
+LBB1,Lake Bonney BESS1,25,-37.83,140.39,project
+LGAPBS1,Lincoln Gap Wind Farm BESS,10,-32.612667,137.606782,Network Map/KCI
+ADPBA1,Adelaide Desalination Plant,7,-35.105,138.482,site approx
+HVWWBA1,Happy Valley WTP,5,-35.063,138.589,site approx
+BOWWBA1,Bolivar Waste Water Treatment Plant,3,-34.727,138.585,site approx
+CBWWBA1,Christies Beach WWTP,2,-35.14,138.476,site approx

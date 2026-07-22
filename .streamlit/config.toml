@@ -1,0 +1,18 @@
+# Custom theme — modern indigo/slate palette
+[theme]
+base = "light"
+primaryColor = "#4F46E5"            # indigo-600
+backgroundColor = "#FAFAFA"          # near-white
+secondaryBackgroundColor = "#F1F5F9" # slate-100
+textColor = "#0F172A"                # slate-900
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[server]
+runOnSave = true
+
+[browser]
+gatherUsageStats = false

@@ -5,6 +5,8 @@ import {
 import type { BidBand, Direction, Market } from '../types'
 import { useT } from '../i18n'
 
+const MPC = 23200
+
 // 11 markets, presented in 3 logical groups so the user picks intent first
 // (sell energy / buy energy / FCAS), not market keys. Labels are dictionary
 // keys — they get resolved through `t(...)` at render time so the toggle is
@@ -54,10 +56,10 @@ const TEMPLATE_DISCHARGE: BidBand[] = [
   { price: -1000, mw: 0 }, { price: 0,    mw: 0 }, { price: 30,  mw: 10 },
   { price: 60,    mw: 20 }, { price: 100, mw: 20 }, { price: 200, mw: 20 },
   { price: 500,   mw: 15 }, { price: 1000, mw: 10 }, { price: 5000, mw: 5 },
-  { price: 17500, mw: 0 },
+  { price: MPC, mw: 0 },
 ]
 const TEMPLATE_CHARGE: BidBand[] = [
-  { price: 17500, mw: 0 }, { price: 1000, mw: 0 }, { price: 200, mw: 5 },
+  { price: MPC, mw: 0 }, { price: 1000, mw: 0 }, { price: 200, mw: 5 },
   { price: 100,   mw: 10 }, { price: 60,  mw: 15 }, { price: 40, mw: 20 },
   { price: 20,    mw: 20 }, { price: 0,   mw: 15 }, { price: -100, mw: 10 },
   { price: -1000, mw: 0 },
@@ -66,7 +68,7 @@ const TEMPLATE_FCAS: BidBand[] = [
   { price: 0, mw: 10 }, { price: 5, mw: 0 }, { price: 10, mw: 0 },
   { price: 20, mw: 0 }, { price: 50, mw: 0 }, { price: 100, mw: 0 },
   { price: 200, mw: 0 }, { price: 500, mw: 0 }, { price: 1000, mw: 0 },
-  { price: 17500, mw: 0 },
+  { price: MPC, mw: 0 },
 ]
 
 function templateFor(market: Market, direction: Direction): BidBand[] {

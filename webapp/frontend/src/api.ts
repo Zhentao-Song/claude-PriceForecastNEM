@@ -1,6 +1,7 @@
 import type {
   ActiveConstraints,
-  BessBacktestRequest, BessBacktestResponse,
+  AsxFuturesResponse,
+  BessBacktestRequest, BessBacktestResponse, BessBenchmarkResponse,
   BessDefaultsResponse, BessModelResponse, BessRegion,
   Bid, BidIn, BessState, BidStack, Constraints, DispatchPlan, FCASForecast, FCASMatrix, Fill, Forecast,
   ForecastAccuracy, ForecastSeries,
@@ -14,6 +15,12 @@ import type {
 } from './types'
 
 const BASE = '/api'
+
+export async function fetchAsxFutures(): Promise<AsxFuturesResponse> {
+  const r = await fetch(`${BASE}/asx-energy/futures`)
+  if (!r.ok) throw new Error(`ASX Energy futures ${r.status}`)
+  return r.json()
+}
 
 export async function fetchSnapshot(): Promise<Snapshot> {
   const r = await fetch(`${BASE}/snapshot`)
@@ -383,6 +390,25 @@ export async function backtestBess(req: BessBacktestRequest): Promise<BessBackte
   const data = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error((data as any)?.detail || `bess backtest ${r.status}`)
   return data
+}
+
+export async function fetchBessBenchmarks(params: {
+  region: BessRegion
+  power_mw: number
+  duration_h: number
+  rte_pct: number
+  mlf: number
+  aux_load_pct: number
+  deg_cost_per_mwh: number
+  max_cycles_per_day: number
+}): Promise<BessBenchmarkResponse> {
+  const query = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)]),
+  )
+  const r = await fetch(`${BASE}/bess/benchmarks?${query}`)
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error((data as any)?.detail || `bess benchmarks ${r.status}`)
+  return data as BessBenchmarkResponse
 }
 
 export async function startBessBackfill(lookbackDays = 400): Promise<{

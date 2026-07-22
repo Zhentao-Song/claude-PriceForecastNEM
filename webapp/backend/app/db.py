@@ -131,6 +131,46 @@ def _init_schema(con: sqlite3.Connection) -> None:
             PRIMARY KEY (settlementdate, duid)
         );
 
+        -- Public D+1 DISPATCHLOAD history for grid-scale batteries.  Unlike
+        -- regional FCAS prices, these rows contain the per-DUID MW actually
+        -- enabled by NEMDE in each FCAS service.  The table is deliberately
+        -- limited to selected BESS DUIDs by the backfill scraper rather than
+        -- storing ~15 million all-unit rows per year.
+        CREATE TABLE IF NOT EXISTS nem_bess_dispatch (
+            settlementdate TIMESTAMP NOT NULL,
+            duid TEXT NOT NULL,
+            initial_mw REAL,
+            totalcleared_mw REAL,
+            raise6sec_mw REAL,
+            raise60sec_mw REAL,
+            raise5min_mw REAL,
+            raisereg_mw REAL,
+            raise1sec_mw REAL,
+            lower6sec_mw REAL,
+            lower60sec_mw REAL,
+            lower5min_mw REAL,
+            lowerreg_mw REAL,
+            lower1sec_mw REAL,
+            initial_energy_storage_mwh REAL,
+            energy_storage_mwh REAL,
+            PRIMARY KEY (settlementdate, duid)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_bess_dispatch_duid_time
+            ON nem_bess_dispatch(duid, settlementdate DESC);
+        CREATE INDEX IF NOT EXISTS idx_bess_dispatch_time
+            ON nem_bess_dispatch(settlementdate DESC);
+
+        -- Persistent derived benchmark cache.  A cold calibration requires
+        -- several full-year SOC optimisations; keying the JSON result to the
+        -- source-row fingerprint keeps page loads fast without allowing stale
+        -- values to survive a DISPATCHLOAD or price-data refresh.
+        CREATE TABLE IF NOT EXISTS nem_bess_benchmark_cache (
+            cache_key TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- AEMO DISPATCHCONSTRAINT: per-interval binding network/security
         -- constraints. We keep only rows with a non-zero marginalvalue
         -- (i.e. *binding* constraints — non-binding ones generate ~300k
@@ -255,7 +295,7 @@ def _init_schema(con: sqlite3.Connection) -> None:
         -- bid type) tuple. Prices LOCK at 12:30 day before — they cannot be
         -- changed once the trading day starts. AEMO requires bands monotonically
         -- ascending (NER 3.8.6A.1) and the floor/cap are market-wide ($-1000 /
-        -- MPC, currently $17,500 from 2024-25). bidtype is one of:
+        -- MPC, currently $23,200 from 2026-27). bidtype is one of:
         --   ENERGY, RAISEREG, RAISE5MIN, RAISE60SEC, RAISE6SEC, RAISE1SEC,
         --   LOWERREG, LOWER5MIN, LOWER60SEC, LOWER6SEC, LOWER1SEC.
         -- direction is GEN/LOAD derived from the BIDTYPE column — for energy

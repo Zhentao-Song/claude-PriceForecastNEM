@@ -20,6 +20,8 @@ import type { PaperBatchBidItem } from '../api'
 import { useT } from '../i18n'
 import { FCASBidPanel } from './FCASBidPanel'
 
+const MPC = 23200
+
 // Action colour palette
 const ACTION_COLOR: Record<string, string> = {
   discharge: '#ff9500',   // amber — selling energy
@@ -172,7 +174,7 @@ export function BESSDispatchPanel({ duid = 'WTAHB1', region = 'NSW1' }: Props) {
         // Charge: willing to pay up to 120% of forecast — clears when RRP <= band price
         const bandPrice = iv.action === 'discharge'
           ? Math.max(30, iv.price_forecast_aud * 0.8)
-          : Math.min(17500, iv.price_forecast_aud * 1.2)
+          : Math.min(MPC, iv.price_forecast_aud * 1.2)
         return {
           target_settlementdate: iv.interval.replace('T', ' ').slice(0, 19),
           market: 'ENERGY',

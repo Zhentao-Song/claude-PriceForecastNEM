@@ -1,10 +1,12 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 httpx>=0.27.0
+certifi>=2024.2.2     # trusted CA bundle for ASX Energy EOD HTTPS reports
 apscheduler>=3.10.0
 python-dateutil>=2.9.0
 sse-starlette>=2.1.0
 aiofiles>=23.0.0        # required by FastAPI StaticFiles
 honcho>=1.1.0           # run the API + scheduler as two processes (prod, via Procfile)
 lightgbm>=4.3.0         # ML price-forecast model (forecast/ml.py); pulls numpy+scipy
+scipy>=1.10.0           # chronological BESS dispatch optimisation (HiGHS LP)
 # SQLite is in the stdlib — no extra dep needed.

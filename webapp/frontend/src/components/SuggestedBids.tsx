@@ -51,9 +51,9 @@ const GATE_WARN_SEC = 60
 // when we add other deep-dives we'll lift this to a prop.
 const REGION = 'NSW1'
 
-// AEMO Market Price Floor / Cap (FY 2024-25). Bands must lie inside [-1000, 17500].
+// AEMO Market Price Floor / Cap (FY2026-27). Bands must lie inside [-1000, 23200].
 const MPF = -1000
-const MPC = 17500
+const MPC = 23200
 
 // MW weights (% of nameplate power) across the 10-band ladder — mass in the
 // middle (where the per-interval forecast tends to sit), thin tails for

@@ -5,63 +5,51 @@ Two endpoints:
                              pre-calibrated from real historical RRP/FCAS data.
   POST /api/bess/model     — full 20-year cashflow + IRR + sensitivity.
 
-The defaults endpoint is the bridge between our real NEM data and the
-pure-function finance model: it reads the last N days of
-`nem_dispatch_price` to estimate daily arbitrage spread and FCAS revenue
-per MW, then hands those as `arb_spread_per_mwh` + `fcas_revenue_per_mw_year`
-into BessFinanceInputs.
+The defaults endpoint is the bridge between real NEM data and the
+pure-function finance model.  SA comparator benchmarks use public DUID-level
+dispatch and actual per-service FCAS enablement; no regional-price utilisation
+proxy is fed into project cashflow.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import wraps
+from threading import Lock
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..bess_finance import BessFinanceInputs, project_cashflow, tornado
-from ..bess_backtest import run_full_backtest
+from ..bess_backtest import run_energy_backtest, run_full_backtest
+from ..bess_benchmarks import observed_bess_benchmarks, target_bess_benchmark
 from ..db import locked_conn
 from ..scrapers.backfill import get_mmsdm_state, start_mmsdm_backfill
 
 router = APIRouter(prefix="/api/bess", tags=["bess-calc"])
 
 NEM_REGIONS = {"NSW1", "QLD1", "VIC1", "SA1", "TAS1"}
-
-# Region-level MLF baseline (representative 2024-25 values from AEMO
-# published transmission MLF tables; transmission-connected BESS sit in
-# this range — exact value is per DUID).
-REGION_MLF: dict[str, float] = {
-    "NSW1": 0.985,
-    "QLD1": 0.982,
-    "VIC1": 0.972,
-    "SA1":  0.965,
-    "TAS1": 0.952,
-}
+_DEFAULTS_CACHE: dict[tuple[str, int, int], dict] = {}
+_DEFAULTS_LOCK = Lock()
+_BACKTEST_CACHE: dict[tuple, dict] = {}
+_BACKTEST_LOCK = Lock()
 
 
-# ---- MLF helpers ---------------------------------------------------------
+def _serialised_defaults(func):
+    """Deduplicate simultaneous defaults/model calibration requests."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with _DEFAULTS_LOCK:
+            return func(*args, **kwargs)
+    return wrapped
 
-CURRENT_MLF_FY = "2025-26"
 
-
-def _regional_mlf_from_db(con, region: str, fy: str = CURRENT_MLF_FY) -> float | None:
-    """Capacity-weighted average MLF for a region from the nem_mlf table.
-
-    Returns None when the table is empty (fresh install before DB seed).
-    The caller falls back to REGION_MLF in that case.
-    """
-    row = con.execute(
-        """
-        SELECT SUM(mlf * COALESCE(capacity_mw, 1)) / SUM(COALESCE(capacity_mw, 1))
-        FROM nem_mlf
-        WHERE region = ? AND financial_year = ?
-        """,
-        (region, fy),
-    ).fetchone()
-    if row and row[0] is not None:
-        return round(float(row[0]), 4)
-    return None
-
+def _serialised_backtest(func):
+    """Coalesce duplicate full backtests triggered by UI reloads."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with _BACKTEST_LOCK:
+            return func(*args, **kwargs)
+    return wrapped
 
 # ---- Real-data calibration helpers ---------------------------------------
 
@@ -79,161 +67,18 @@ def _quantile(sorted_vals: list[float], q: float) -> float:
     return sorted_vals[lo] * (1 - frac) + sorted_vals[hi] * frac
 
 
-def _historical_arb_spread(region: str, lookback_days: int = 90,
-                            top_hours: int = 4) -> dict | None:
-    """Daily arbitrage spread distribution for a region.
-
-    For each day in the lookback window:
-        spread = avg(top 4h RRP) − avg(bottom 4h RRP)
-    This captures what a BESS doing 1 cycle/day could realistically earn
-    per MWh discharged (before round-trip losses + fees).
-
-    Returns a dict with mean / median / p25 / p75 / last_7d_mean /
-    min / max / n_days so the UI can show "typical $148, recent $165,
-    range $95–$205" instead of one opaque number. Returns None when
-    not enough data is available (typical right after install).
-    """
-    nowdt = datetime.utcnow() + timedelta(hours=10)
-    cutoff = (nowdt - timedelta(days=lookback_days)).strftime("%Y-%m-%d %H:%M:%S")
-    cutoff_7d = (nowdt - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-    with locked_conn() as con:
-        rows = con.execute(
-            """
-            SELECT DATE(settlementdate), rrp, settlementdate
-            FROM nem_dispatch_price
-            WHERE regionid = ? AND settlementdate >= ? AND rrp IS NOT NULL
-            """,
-            (region, cutoff),
-        ).fetchall()
-    if not rows:
-        return None
-    by_day: dict[str, list[float]] = {}
-    recent_days: set[str] = set()
-    for d, p, ts in rows:
-        by_day.setdefault(d, []).append(float(p))
-        if str(ts) >= cutoff_7d:
-            recent_days.add(d)
-    n_per_hour = 12
-    n_top = top_hours * n_per_hour
-    spreads: list[float] = []
-    spreads_7d: list[float] = []
-    for d, prices in by_day.items():
-        if len(prices) < n_top * 2:
-            continue
-        sorted_p = sorted(prices)
-        bottom_avg = sum(sorted_p[:n_top]) / n_top
-        top_avg = sum(sorted_p[-n_top:]) / n_top
-        spread = top_avg - bottom_avg
-        spreads.append(spread)
-        if d in recent_days:
-            spreads_7d.append(spread)
-    if not spreads:
-        return None
-    spreads_sorted = sorted(spreads)
-    return {
-        "mean":           sum(spreads) / len(spreads),
-        "median":         _quantile(spreads_sorted, 0.5),
-        "p25":            _quantile(spreads_sorted, 0.25),
-        "p75":            _quantile(spreads_sorted, 0.75),
-        "min":            spreads_sorted[0],
-        "max":            spreads_sorted[-1],
-        "last_7d_mean":   (sum(spreads_7d) / len(spreads_7d)) if spreads_7d else None,
-        "n_days":         len(spreads),
-        "lookback_days":  lookback_days,
-    }
-
-
-def _historical_fcas_per_mw_year(region: str, lookback_days: int = 30,
-                                   utilisation: float = 0.35) -> dict | None:
-    """FCAS revenue per MW per year, calibrated from cleared FCAS RRPs.
-
-    Returns dict with daily distribution stats + per-market breakdown.
-    The "default" value the UI uses is `per_mw_year_after_util`, which is
-    `raw_per_mw_year × utilisation`. Utilisation = 0.35 reflects that a
-    BESS sharing capacity between energy arbitrage and FCAS can't keep
-    100% MW in FCAS 24/7.
-    """
-    nowdt = datetime.utcnow() + timedelta(hours=10)
-    cutoff = (nowdt - timedelta(days=lookback_days)).strftime("%Y-%m-%d %H:%M:%S")
-    cutoff_7d = (nowdt - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-    fcas_cols = ["raise6sec_rrp", "raise60sec_rrp", "raise5min_rrp",
-                  "raisereg_rrp", "raise1sec_rrp",
-                  "lower6sec_rrp", "lower60sec_rrp", "lower5min_rrp",
-                  "lowerreg_rrp", "lower1sec_rrp"]
-    col_select = ", ".join(f"COALESCE({c}, 0)" for c in fcas_cols)
-    with locked_conn() as con:
-        rows = con.execute(
-            f"""
-            SELECT settlementdate, {col_select}
-            FROM nem_dispatch_price
-            WHERE regionid = ? AND settlementdate >= ?
-            """,
-            (region, cutoff),
-        ).fetchall()
-    if not rows:
-        return None
-    by_day: dict[str, float] = {}
-    by_day_7d: dict[str, float] = {}
-    market_totals = [0.0] * len(fcas_cols)
-    market_intervals = 0
-    for r in rows:
-        ts = r[0]
-        prices = [float(p or 0) for p in r[1:]]
-        day = str(ts)[:10]
-        # Per-interval per-MW $ = sum(prices) × 5/60   (prices are $/MW/h)
-        rev_per_mw = sum(prices) * (5.0 / 60.0)
-        by_day[day] = by_day.get(day, 0) + rev_per_mw
-        if str(ts) >= cutoff_7d:
-            by_day_7d[day] = by_day_7d.get(day, 0) + rev_per_mw
-        for i, p in enumerate(prices):
-            market_totals[i] += p
-        market_intervals += 1
-    if not by_day:
-        return None
-    daily_vals = sorted(by_day.values())
-    daily_mean = sum(daily_vals) / len(daily_vals)
-    # Per-market avg annualised $/MW (raw — no utilisation)
-    market_breakdown: dict[str, float] = {}
-    if market_intervals > 0:
-        for i, col in enumerate(fcas_cols):
-            avg_price = market_totals[i] / market_intervals   # $/MW/h
-            market_breakdown[col.replace("_rrp", "").upper()] = round(avg_price * 8760, 0)
-    raw_per_mw_year = daily_mean * 365
-    last_7d_daily_mean = (sum(by_day_7d.values()) / len(by_day_7d)) if by_day_7d else None
-    # Annualised + utilisation-adjusted 7d value so the UI can compare
-    # like-for-like with the main `per_mw_year_after_util` figure. Without
-    # this the strip mixed daily and annual units (genuine bug).
-    last_7d_per_mw_year_after_util = (
-        round(last_7d_daily_mean * 365 * utilisation, 0)
-        if last_7d_daily_mean is not None else None
-    )
-    return {
-        "raw_per_mw_year":                  round(raw_per_mw_year, 0),
-        "utilisation":                      utilisation,
-        "per_mw_year_after_util":           round(raw_per_mw_year * utilisation, 0),
-        "daily_mean":                       daily_mean,
-        "daily_median":                     _quantile(daily_vals, 0.5),
-        "daily_p25":                        _quantile(daily_vals, 0.25),
-        "daily_p75":                        _quantile(daily_vals, 0.75),
-        "last_7d_daily_mean":               last_7d_daily_mean,
-        "last_7d_per_mw_year_after_util":   last_7d_per_mw_year_after_util,
-        "n_days":                           len(by_day),
-        "lookback_days":                    lookback_days,
-        "by_market_per_mw_year":            market_breakdown,
-    }
-
-
 # ---- /defaults ------------------------------------------------------------
 
 @router.get("/defaults")
+@_serialised_defaults
 def bess_defaults(region: str = Query("NSW1"),
                    lookback_days: int = Query(90, ge=7, le=365)) -> dict:
     """Recommended BESS finance inputs for the chosen region.
 
     Returns the FULL BessFinanceInputs object pre-populated with:
-      - Region-specific MLF (from REGION_MLF table)
-      - arb_spread_per_mwh derived from last N days of RRP history
-      - fcas_revenue_per_mw_year derived from last 30 days of FCAS RRPs
+      - Neutral MLF placeholder pending a project connection-point input
+      - arb_spread_per_mwh: captured cash margin per discharged MWh
+      - fcas_revenue_per_mw_year: zero until calibrated from DUID actuals
       - Industry-standard defaults for everything else
 
     Each value comes back with a `provenance` tag so the UI can show
@@ -244,27 +89,65 @@ def bess_defaults(region: str = Query("NSW1"),
     if region not in NEM_REGIONS:
         raise HTTPException(400, f"region must be one of {sorted(NEM_REGIONS)}")
 
-    spread_stats = _historical_arb_spread(region, lookback_days)
-    fcas_stats = _historical_fcas_per_mw_year(region)
+    # Defaults are expensive because they include one LP per complete day.
+    # Cache within the current five-minute market interval so the initial
+    # defaults request and subsequent finance-model requests stay responsive,
+    # while still refreshing as new dispatch prices arrive.
+    cache_bucket = int(datetime.utcnow().timestamp()) // 300
+    cache_key = (region, int(lookback_days), cache_bucket)
+    cached = _DEFAULTS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
-    # Real MLF from nem_mlf table (capacity-weighted FY average).
-    # Falls back to hardcoded REGION_MLF when the table is empty.
-    with locked_conn() as con:
-        db_mlf = _regional_mlf_from_db(con, region)
-    real_mlf    = db_mlf if db_mlf is not None else REGION_MLF.get(region, 0.98)
-    mlf_source  = "db" if db_mlf is not None else "regional_baseline"
+    # MLF is connection-point/DUID specific.  A regional capacity-weighted
+    # average is not a valid project assumption (and can be polluted by
+    # reserve-trader/interconnector records), so use a neutral placeholder
+    # until the user supplies the project's connection-point MLF.
+    real_mlf = 1.0
+    mlf_source = "project_input_required"
+
+    # Defaults use the theoretical energy upper bound only as a temporary
+    # starter.  The SA UI replaces it with the observed-comparator median as
+    # soon as /benchmarks returns.  No hidden 80% capture haircut is applied.
+    energy_stats = run_energy_backtest(
+        region,
+        power_mw=100.0,
+        duration_h=2.0,
+        rte_pct=88.0,
+        lookback_days=lookback_days,
+        capture_efficiency=1.0,
+        mlf=real_mlf,
+        aux_load_pct=1.5,
+        deg_cost_per_mwh=35.0,
+        max_cycles_per_day=2.0,
+    )
+
+    margin_days = (
+        [
+            float(day["captured_market_margin_per_mwh"])
+            for day in energy_stats["daily_results"]
+            if float(day["discharge_mwh"]) > 1e-6
+        ]
+        if energy_stats else []
+    )
+    margin_days_sorted = sorted(margin_days)
+    last_7_margin_days = margin_days[-7:]
 
     # If we have NO data (fresh DB), fall back to representative NSW
     # numbers so the UI still shows a sane starting point.
-    spread_fallback = {"NSW1": 150, "QLD1": 140, "VIC1": 130, "SA1": 160, "TAS1": 80}
-    fcas_fallback   = {"NSW1": 30_000, "QLD1": 28_000, "VIC1": 25_000, "SA1": 35_000, "TAS1": 15_000}
-
+    margin_fallback = {"NSW1": 90, "QLD1": 85, "VIC1": 80, "SA1": 100, "TAS1": 55}
     # Point estimates fed into the finance model.
-    # For arb spread we use the MEDIAN (more robust than mean — NSW has
-    # big positive-skew outliers from spike events that mean would over-
-    # weight). For FCAS we use the utilisation-adjusted annualised mean.
-    arb_default = round(spread_stats["median"], 1) if spread_stats else float(spread_fallback[region])
-    fcas_default = float(fcas_stats["per_mw_year_after_util"]) if fcas_stats else float(fcas_fallback[region])
+    arb_default = (
+        round(float(energy_stats["captured_market_margin_per_mwh"]), 3)
+        if energy_stats else float(margin_fallback[region])
+    )
+    cycles_default = (
+        round(float(energy_stats["mean_cycles_per_day"]), 4)
+        if energy_stats else 1.2
+    )
+    # Never feed a regional-price proxy into project cashflow.  FCAS remains
+    # zero until a DUID-observed comparator benchmark is available.
+    fcas_default = 0.0
 
     defaults = {
         # Asset spec: caller will overwrite
@@ -278,7 +161,7 @@ def bess_defaults(region: str = Query("NSW1"),
         "loan_tenor_years": 10,
         # Engineering
         "rte_pct": 88.0,
-        "cycles_per_day": 1.2,
+        "cycles_per_day": cycles_default,
         "degradation_pct_year": 2.0,
         "aux_load_pct": 1.5,
         "mlf": real_mlf,
@@ -293,7 +176,7 @@ def bess_defaults(region: str = Query("NSW1"),
         # Revenue (calibrated from real data if we have it)
         "arb_spread_per_mwh": arb_default,
         "fcas_revenue_per_mw_year": fcas_default,
-        "fcas_decline_pct_year": 8.0,
+        "fcas_decline_pct_year": 0.0,
         "cis_floor_revenue_per_mw_year": 0.0,
         # Financial
         "discount_rate_pct": 7.0,
@@ -307,62 +190,51 @@ def bess_defaults(region: str = Query("NSW1"),
     provenance = {
         "mlf": {
             "source": mlf_source,
-            "note": (
-                f"AEMO {CURRENT_MLF_FY} capacity-weighted regional avg "
-                f"({real_mlf:.4f}), {region}"
-                if mlf_source == "db"
-                else f"AEMO 2024-25 representative for {region}"
-            ),
+            "note": "Enter the project connection-point/DUID MLF; regional averaging is disabled",
         },
         "arb_spread_per_mwh": {
-            "source": "historical" if spread_stats else "fallback",
-            "note": (f"Top 4h vs bottom 4h daily spread, last {lookback_days}d of {region} RRP"
-                     if spread_stats else "no historical data yet — using NSW representative starter"),
+            "source": "historical" if energy_stats else "fallback",
+            "note": (
+                f"Perfect-foresight energy upper bound, last {lookback_days}d of {region}; "
+                "cash margin after RTE, MLF and aux; SA comparator calibration loads separately"
+                if energy_stats else "no complete historical data — using representative net-margin starter"
+            ),
             "stats": ({
-                "value": round(spread_stats["median"], 1),     # point used
-                "mean":  round(spread_stats["mean"], 1),
-                "median": round(spread_stats["median"], 1),
-                "p25": round(spread_stats["p25"], 1),
-                "p75": round(spread_stats["p75"], 1),
-                "min": round(spread_stats["min"], 1),
-                "max": round(spread_stats["max"], 1),
-                "last_7d_mean": round(spread_stats["last_7d_mean"], 1) if spread_stats["last_7d_mean"] is not None else None,
-                "n_days": spread_stats["n_days"],
-                "lookback_days": spread_stats["lookback_days"],
+                "value": arb_default,
+                "mean": round(sum(margin_days) / len(margin_days), 1) if margin_days else 0,
+                "median": round(_quantile(margin_days_sorted, 0.5), 1),
+                "p25": round(_quantile(margin_days_sorted, 0.25), 1),
+                "p75": round(_quantile(margin_days_sorted, 0.75), 1),
+                "min": round(margin_days_sorted[0], 1) if margin_days_sorted else 0,
+                "max": round(margin_days_sorted[-1], 1) if margin_days_sorted else 0,
+                "last_7d_mean": (
+                    round(sum(last_7_margin_days) / len(last_7_margin_days), 1)
+                    if last_7_margin_days else None
+                ),
+                "n_days": energy_stats["n_days_backtested"],
+                "lookback_days": lookback_days,
                 "unit": "$/MWh",
-                "label": "Daily arb spread (top 4h − bottom 4h)",
-            } if spread_stats else None),
+                "label": "Captured energy cash margin per discharged MWh",
+            } if energy_stats else None),
         },
         "fcas_revenue_per_mw_year": {
-            "source": "historical" if fcas_stats else "fallback",
-            "note": ("10-market sum × 0.35 utilisation, last 30d"
-                     if fcas_stats else "no historical data yet — using NSW representative starter"),
-            "stats": ({
-                "value": round(fcas_stats["per_mw_year_after_util"], 0),
-                "raw_per_mw_year": round(fcas_stats["raw_per_mw_year"], 0),
-                "utilisation": fcas_stats["utilisation"],
-                "daily_mean": round(fcas_stats["daily_mean"], 0),
-                "daily_median": round(fcas_stats["daily_median"], 0),
-                "daily_p25": round(fcas_stats["daily_p25"], 0),
-                "daily_p75": round(fcas_stats["daily_p75"], 0),
-                "last_7d_daily_mean": round(fcas_stats["last_7d_daily_mean"], 0) if fcas_stats["last_7d_daily_mean"] is not None else None,
-                # 7d value shown in the CalibrationStrip — same units as `value`
-                # so the strip's "7d X" is apples-to-apples with the input box.
-                "last_7d_mean": fcas_stats["last_7d_per_mw_year_after_util"],
-                "n_days": fcas_stats["n_days"],
-                "lookback_days": fcas_stats["lookback_days"],
-                "by_market": fcas_stats["by_market_per_mw_year"],
-                "unit": "$/MW/yr",
-                "label": f"Cleared FCAS revenue, last {fcas_stats['lookback_days']}d {region}",
-            } if fcas_stats else None),
+            "source": "unmodelled",
+            "note": "Excluded until calibrated from DUID-level actual FCAS enablement",
+            "stats": None,
         },
         # Hardcoded industry-standard defaults
         "rte_pct":                  {"source": "industry", "note": "Lithium 2024 typical"},
-        "cycles_per_day":           {"source": "industry", "note": "Arb-led BESS average"},
+        "cycles_per_day": {
+            "source": "historical" if energy_stats else "industry",
+            "note": (
+                f"Chronological SOC backtest average over {energy_stats['n_days_backtested']} complete days"
+                if energy_stats else "Arbitrage-led BESS starter"
+            ),
+        },
         "degradation_pct_year":     {"source": "industry", "note": "Lithium ~1.5-2.5%/yr"},
         "opex_per_kw_year":         {"source": "industry", "note": "AEMO ISP cost assumption"},
         "insurance_per_mwh_year":   {"source": "industry"},
-        "fcas_decline_pct_year":    {"source": "industry", "note": "BESS saturation 2026-2030 trend"},
+        "fcas_decline_pct_year":    {"source": "unmodelled", "note": "Explicit user scenario; no automatic decline is assumed"},
         "discount_rate_pct":        {"source": "industry", "note": "Infrastructure WACC benchmark"},
         "tax_rate_pct":             {"source": "regulatory", "note": "Australian corporate 30%"},
         "depreciation_life_years":  {"source": "regulatory", "note": "ATO storage assets (DV 18.18%)"},
@@ -371,12 +243,15 @@ def bess_defaults(region: str = Query("NSW1"),
         "nuos_per_mw_year":         {"source": "industry", "note": "TNSP/DNSP charge typical"},
         "land_rent_aud_year":       {"source": "industry"},
     }
-    return {
+    payload = {
         "region": region,
         "lookback_days": lookback_days,
         "inputs": defaults,
         "provenance": provenance,
     }
+    _DEFAULTS_CACHE.clear()
+    _DEFAULTS_CACHE[cache_key] = payload
+    return payload
 
 
 # ---- /model ---------------------------------------------------------------
@@ -430,7 +305,8 @@ def bess_model(req: BessModelRequest, with_sensitivity: bool = Query(True)) -> d
     if region not in NEM_REGIONS:
         raise HTTPException(400, f"region must be one of {sorted(NEM_REGIONS)}")
 
-    defaults = bess_defaults(region=region, lookback_days=90)["inputs"]
+    defaults_payload = bess_defaults(region=region, lookback_days=90)
+    defaults = defaults_payload["inputs"]
 
     # Merge: user values win, otherwise defaults.
     merged = {**defaults}
@@ -444,8 +320,7 @@ def bess_model(req: BessModelRequest, with_sensitivity: bool = Query(True)) -> d
     else:
         result["sensitivity"] = []
     # Include provenance so the UI can flag derived-from-real-data vs default.
-    prov = bess_defaults(region=region, lookback_days=90)["provenance"]
-    result["provenance"] = prov
+    result["provenance"] = defaults_payload["provenance"]
     return result
 
 
@@ -454,10 +329,10 @@ def bess_model(req: BessModelRequest, with_sensitivity: bool = Query(True)) -> d
 class BessBacktestRequest(BaseModel):
     """Backtest a specific BESS spec against historical RRP.
 
-    The backtest finds the *economically-optimal* cycle count for each
-    individual day rather than using a fixed cycles/day assumption: it
-    adds dispatch intervals (best-price sell + cheapest-price buy) until
-    the marginal net revenue equals the marginal battery degradation cost.
+    Energy uses a chronological perfect-foresight LP with explicit SOC,
+    power, round-trip efficiency, daily cyclic SOC and a warranty-cycle cap.
+    FCAS is deliberately excluded here and is supplied only through the
+    observed DUID benchmark endpoint.
     """
     region: str = Field("NSW1")
     power_mw: float = Field(..., gt=0)
@@ -466,8 +341,7 @@ class BessBacktestRequest(BaseModel):
     mlf: float = Field(0.985, gt=0.5, le=1.05)
     aux_load_pct: float = Field(1.5, ge=0, le=10)
     lookback_days: int = Field(365, ge=30, le=730)
-    capture_efficiency: float = Field(0.80, gt=0, le=1)
-    fcas_utilisation: float = Field(0.35, ge=0, le=1)
+    capture_efficiency: float = Field(1.0, gt=0, le=1)
     # Dynamic dispatch parameters
     deg_cost_per_mwh: float = Field(
         35.0, ge=0, le=500,
@@ -484,19 +358,31 @@ class BessBacktestRequest(BaseModel):
 
 
 @router.post("/backtest")
+@_serialised_backtest
 def bess_backtest(req: BessBacktestRequest) -> dict:
-    """Simulate the BESS over historical RRP data with per-day optimal cycling.
-
-    Each day the algorithm finds how many 5-min intervals to dispatch by
-    comparing marginal spread revenue against marginal degradation cost —
-    more cycles on spike days, fewer (or zero) on flat days.
-
-    Returns annual_total_revenue_aud + energy{..., mean_cycles_per_day,
-    n_days_idle, cycle_histogram, ...} + fcas{...}.
-    """
+    """Return the SOC-constrained energy upper bound; FCAS is excluded."""
     region = req.region.upper()
     if region not in NEM_REGIONS:
         raise HTTPException(400, f"region must be one of {sorted(NEM_REGIONS)}")
+
+    cache_bucket = int(datetime.utcnow().timestamp()) // 300
+    cache_key = (
+        cache_bucket,
+        region,
+        req.power_mw,
+        req.duration_h,
+        req.rte_pct,
+        req.mlf,
+        req.aux_load_pct,
+        req.lookback_days,
+        req.capture_efficiency,
+        req.deg_cost_per_mwh,
+        req.max_cycles_per_day,
+    )
+    cached = _BACKTEST_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     result = run_full_backtest(
         region=region,
         power_mw=req.power_mw, duration_h=req.duration_h,
@@ -504,11 +390,44 @@ def bess_backtest(req: BessBacktestRequest) -> dict:
         mlf=req.mlf, aux_load_pct=req.aux_load_pct,
         lookback_days=req.lookback_days,
         capture_efficiency=req.capture_efficiency,
-        fcas_utilisation=req.fcas_utilisation,
         deg_cost_per_mwh=req.deg_cost_per_mwh,
         max_cycles_per_day=req.max_cycles_per_day,
     )
+    for old_key in list(_BACKTEST_CACHE):
+        if old_key[0] != cache_bucket:
+            del _BACKTEST_CACHE[old_key]
+    _BACKTEST_CACHE[cache_key] = result
     return result
+
+
+@router.get("/benchmarks")
+def bess_benchmarks(
+    region: str = Query("SA1"),
+    power_mw: float = Query(250.0, gt=0),
+    duration_h: float = Query(4.0, gt=0),
+    rte_pct: float = Query(88.0, gt=50, le=100),
+    mlf: float = Query(1.0, gt=0.5, le=1.05),
+    aux_load_pct: float = Query(1.5, ge=0, le=10),
+    deg_cost_per_mwh: float = Query(35.0, ge=0, le=500),
+    max_cycles_per_day: float = Query(2.0, gt=0, le=6),
+    calibrated: bool = Query(True),
+) -> dict:
+    """Observed SA BESS revenue and a comparator-calibrated target range."""
+    region = region.upper()
+    if region not in NEM_REGIONS:
+        raise HTTPException(400, f"region must be one of {sorted(NEM_REGIONS)}")
+    if not calibrated:
+        return observed_bess_benchmarks(region)
+    return target_bess_benchmark(
+        region,
+        round(power_mw, 4),
+        round(duration_h, 4),
+        round(rte_pct, 4),
+        round(mlf, 6),
+        round(aux_load_pct, 4),
+        round(deg_cost_per_mwh, 4),
+        round(max_cycles_per_day, 4),
+    )
 
 
 # ---- /backfill — one-click 365-day data top-up ----------------------------
